@@ -1,0 +1,42 @@
+begin;
+
+select plan(16);
+
+select has_table('public', 'profiles', 'profiles table exists');
+select has_table('public', 'bean_profiles', 'bean_profiles table exists');
+select has_table('public', 'coffees', 'coffees table exists');
+select has_table('public', 'recipe_templates', 'recipe_templates table exists');
+select has_table('public', 'recipe_steps', 'recipe_steps table exists');
+select has_table('public', 'dial_in_threads', 'dial_in_threads table exists');
+select has_table('public', 'brew_plans', 'brew_plans table exists');
+select has_table('public', 'brew_plan_steps', 'brew_plan_steps table exists');
+select has_table('public', 'brew_sessions', 'brew_sessions table exists');
+select has_table('public', 'brew_session_steps', 'brew_session_steps table exists');
+select has_table('public', 'taste_feedback', 'taste_feedback table exists');
+select has_table('public', 'adjustment_suggestions', 'adjustment_suggestions table exists');
+
+select has_column('public', 'bean_profiles', 'user_id', 'bean profiles have an owner');
+select col_type_is('public', 'taste_feedback', 'flavor_tags', 'text[]', 'flavor tags use PostgreSQL text[]');
+select ok(
+  exists (
+    select 1
+    from pg_constraint
+    where conname = 'brew_session_steps_session_plan_step_key'
+  ),
+  'session step retries have a uniqueness constraint'
+);
+select is(
+  (
+    select count(*)
+    from pg_class
+    join pg_namespace on pg_namespace.oid = pg_class.relnamespace
+    where pg_namespace.nspname = 'public'
+      and pg_class.relkind = 'r'
+      and pg_class.relrowsecurity
+  ),
+  12::bigint,
+  'RLS is enabled on every public table'
+);
+
+select * from finish();
+rollback;

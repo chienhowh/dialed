@@ -65,7 +65,7 @@ MVP 不先建立大型 Design System。
 
 MVP：
 
-- Email authentication 為必要功能
+- Email + password authentication 為必要功能
 - Google OAuth 為 optional，不阻擋 MVP 或 Milestone 2 完成
 
 Auth UX 先保持簡單，不建立複雜的 onboarding 或 account-management flow。
@@ -201,6 +201,7 @@ created_at
 
 ```text
 id
+user_id
 origin_country
 region
 process
@@ -213,6 +214,8 @@ created_at
 ```
 
 MVP 可以允許 user-created data。
+
+MVP 的 `bean_profiles` 屬於建立它的使用者，`user_id` 對應 Supabase Auth user id。這避免 user-created Bean Profile 在 Community sharing boundary 建立前意外公開。
 
 未來 Community 成熟後，再考慮 canonical bean data / deduplication。
 
@@ -959,6 +962,8 @@ user_id = auth.uid()
 
 User-owned：
 
+- profiles (`id = auth.uid()`)
+- bean_profiles
 - coffees
 - dial_in_threads
 - brew_plans
@@ -966,7 +971,17 @@ User-owned：
 - taste_feedback
 - adjustment_suggestions
 
-Public Recipe / Community 資料未來另外設計 public read policy。
+User-owned child tables 透過 parent ownership policy 保護：
+
+- brew_plan_steps → brew_plans
+- brew_session_steps → brew_sessions
+
+Official Recipe tables 為 public read、migration / service-role write：
+
+- recipe_templates
+- recipe_steps
+
+Community 資料的 public policy 未來另外設計。
 
 Supabase Auth 與 Data API 可以配合 RLS 控制 row-level access。
 

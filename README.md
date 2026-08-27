@@ -4,8 +4,9 @@ Dialed is a mobile-first coffee brewing assistant. The current implementation is
 
 ## Requirements
 
-- Node.js 20.19 or newer
+- Node.js 22 or newer
 - npm 10 or newer
+- Docker Desktop or another Docker-compatible runtime for local Supabase
 
 ## Local setup
 
@@ -22,8 +23,19 @@ Open `http://localhost:3000`.
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `APP_URL` | Preview/production | Canonical origin used by application metadata. Local development falls back to `http://localhost:3000`. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project API URL. |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | Public Supabase key used by browser and SSR clients. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Local tests only | Creates and removes isolated Auth test users. Never expose this value to the browser. |
 
-Supabase variables are intentionally deferred to Milestone 2.
+## Local Supabase
+
+```bash
+npm run db:start
+npm run db:reset
+npm run test:db
+```
+
+`db:reset` recreates the local database from migrations and applies the reproducible official recipe seed.
 
 ## Quality commands
 
@@ -31,8 +43,9 @@ Supabase variables are intentionally deferred to Milestone 2.
 npm run lint
 npm run typecheck
 npm test
+npm run test:db
 npm run test:e2e
 npm run build
 ```
 
-The Playwright harness starts the local Next.js development server automatically unless `PLAYWRIGHT_BASE_URL` points to an already-running deployment.
+The Playwright harness reads the local Supabase connection from the CLI, builds the application with those values, and starts the production server automatically. Set `PLAYWRIGHT_BASE_URL` only when testing an already-running deployment with matching Supabase test credentials.
