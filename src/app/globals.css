@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f3ec;
+  --foreground: #261b15;
+  --surface: #fffdf9;
+  --muted: #76675d;
+  --border: #ded5ca;
+  --accent: #7a3f24;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
