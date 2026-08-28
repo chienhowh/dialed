@@ -40,10 +40,10 @@ values
     now()
   );
 
-insert into public.bean_profiles (id, user_id, origin_country, process, roast_level)
+insert into public.bean_profiles (id, user_id, origin_country_code, process, roast_level)
 values
-  ('a1000000-0000-4000-8000-000000000001', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Ethiopia', 'washed', 'light'),
-  ('b1000000-0000-4000-8000-000000000001', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'Kenya', 'washed', 'light');
+  ('a1000000-0000-4000-8000-000000000001', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'ET', 'washed', 'light'),
+  ('b1000000-0000-4000-8000-000000000001', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'KE', 'washed', 'light');
 
 insert into public.coffees (id, user_id, bean_profile_id, product_name)
 values
@@ -128,8 +128,8 @@ select is((select count(*) from public.adjustment_suggestions), 1::bigint, 'a us
 select is((select count(*) from public.recipe_templates), 3::bigint, 'authenticated users can read official recipes');
 
 select throws_ok(
-  $$insert into public.bean_profiles (user_id, origin_country, process, roast_level)
-    values ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'Colombia', 'washed', 'light')$$,
+  $$insert into public.bean_profiles (user_id, origin_country_code, process, roast_level)
+    values ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'CO', 'washed', 'light')$$,
   '42501',
   null,
   'a user cannot insert a bean profile for another user'
@@ -153,8 +153,8 @@ select throws_ok(
   'a user cannot attach another user plan step to their session'
 );
 select lives_ok(
-  $$insert into public.bean_profiles (user_id, origin_country, process, roast_level)
-    values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Colombia', 'washed', 'light')$$,
+  $$insert into public.bean_profiles (user_id, origin_country_code, process, roast_level)
+    values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'CO', 'washed', 'light')$$,
   'a user can insert their own bean profile'
 );
 

@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+import { createTestUser, deleteTestUser, signIn, type TestUser } from "./support/test-user";
+
+let user: TestUser;
+
+test.beforeAll(async () => {
+  user = await createTestUser("shell");
+});
+
+test.afterAll(async () => {
+  await deleteTestUser(user);
+});
+
+test.beforeEach(async ({ page }) => {
+  await signIn(page, user);
+});
+
 test("renders the mobile shell and navigates between primary destinations", async ({ page }) => {
   await page.goto("/");
 
@@ -30,8 +46,6 @@ test("exposes the basic PWA assets", async ({ request }) => {
 });
 
 test("registers the service worker in the production shell", async ({ page }) => {
-  await page.goto("/");
-
   const scriptUrl = await page.evaluate(async () => {
     const registration = await navigator.serviceWorker.ready;
     return registration.active?.scriptURL;

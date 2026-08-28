@@ -97,7 +97,7 @@ export type Database = {
           created_at: string
           farm: string | null
           id: string
-          origin_country: string
+          origin_country_code: string
           process: string
           producer: string | null
           region: string | null
@@ -110,7 +110,7 @@ export type Database = {
           created_at?: string
           farm?: string | null
           id?: string
-          origin_country: string
+          origin_country_code: string
           process: string
           producer?: string | null
           region?: string | null
@@ -123,7 +123,7 @@ export type Database = {
           created_at?: string
           farm?: string | null
           id?: string
-          origin_country?: string
+          origin_country_code?: string
           process?: string
           producer?: string | null
           region?: string | null
@@ -784,4 +784,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

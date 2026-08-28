@@ -202,7 +202,7 @@ created_at
 ```text
 id
 user_id
-origin_country
+origin_country_code
 region
 process
 variety
@@ -218,6 +218,20 @@ MVP 可以允許 user-created data。
 MVP 的 `bean_profiles` 屬於建立它的使用者，`user_id` 對應 Supabase Auth user id。這避免 user-created Bean Profile 在 Community sharing boundary 建立前意外公開。
 
 未來 Community 成熟後，再考慮 canonical bean data / deduplication。
+
+MVP 欄位表示：
+
+| Column | Database representation | Domain type | UI / normalization |
+| --- | --- | --- | --- |
+| `origin_country_code` | required `text`，受 ISO 3166-1 alpha-2 allowlist CHECK 約束 | `OriginCode` | searchable country combobox 顯示國名、提交 country code；不接受任意字串 |
+| `region` | nullable `text` | `string \| null` | free-form、trimmed；空字串轉 `null` |
+| `process` | required `text`，CHECK：`washed` / `natural` / `honey` / `other` | `ProcessCode` | controlled input；display label 與 stored value 分離 |
+| `roast_level` | required `text`，CHECK：`light` / `medium_light` / `medium` / `medium_dark` / `dark` | `RoastLevelCode` | controlled input；display label 與 stored value 分離 |
+| `variety` | nullable `text` | `string \| null` | flexible free-form、trimmed；空字串轉 `null` |
+
+Origin catalog 放在 application/domain layer，包含 typed ISO code allowlist 與 display label mapping；MVP 不建立 countries table。Process 與 Roast Level 的 typed readonly catalogs 也放在 domain layer，讓 Coffee CRUD 與 Recommendation 共用同一份 canonical contract。
+
+目前不加入 `process_detail`。`Anaerobic`、`Thermal Shock`、`Co-ferment` 等 descriptor 不進入互斥的 primary `process` catalog；等實際功能需要時再加入 optional free-form 欄位與 migration。
 
 ---
 
@@ -628,6 +642,8 @@ tasteGoal
 ```
 
 `region` 可以為空。缺少 Region 時應使用其他已知輸入提供較保守的 fallback，而不是拒絕產生 Brew Plan。
+
+`process` 與 `roastLevel` 在進入 Recommendation Engine 前已分別是 `ProcessCode` 與 `RoastLevelCode`；Rules 不執行 casing/string normalization。`originCountry` 以 `OriginCode` 表示，display label 不進入 domain decision。
 
 `brewer: 'v60'` 是固定的 compatibility boundary，用來排除不相容的 Recipe，不參與 MVP rule scoring，也不需要使用者選擇。
 

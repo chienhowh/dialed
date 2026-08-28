@@ -1,6 +1,6 @@
 begin;
 
-select plan(16);
+select plan(18);
 
 select has_table('public', 'profiles', 'profiles table exists');
 select has_table('public', 'bean_profiles', 'bean_profiles table exists');
@@ -16,6 +16,18 @@ select has_table('public', 'taste_feedback', 'taste_feedback table exists');
 select has_table('public', 'adjustment_suggestions', 'adjustment_suggestions table exists');
 
 select has_column('public', 'bean_profiles', 'user_id', 'bean profiles have an owner');
+select has_column(
+  'public',
+  'bean_profiles',
+  'origin_country_code',
+  'bean profiles store origin in an explicitly named code column'
+);
+select hasnt_column(
+  'public',
+  'bean_profiles',
+  'origin_country',
+  'the previous ambiguous origin column name is removed'
+);
 select col_type_is('public', 'taste_feedback', 'flavor_tags', 'text[]', 'flavor tags use PostgreSQL text[]');
 select ok(
   exists (

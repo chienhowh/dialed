@@ -142,6 +142,18 @@ Optional：
 
 `Region` 為 Recommendation Engine 的重要輸入之一，但 UI 不一定強制使用者一定填寫。
 
+MVP Bean Profile 欄位契約：
+
+- `Origin` 必填；使用 ISO 3166-1 alpha-2 country code 作為 canonical stored/domain value，例如 `ET`、`KE`、`CO`、`PA`、`TW`。UI 顯示可搜尋的人類可讀國名，不把顯示名稱存入資料庫。
+- `Region` 選填；維持 trimmed、nullable 的 free-form text，不建立 Region taxonomy。
+- `Process` 必填；primary process 僅使用 `washed`、`natural`、`honey`、`other` canonical values。`Anaerobic`、`Thermal Shock`、`Co-ferment` 這類可與 primary process 共存的 descriptor 不作為互斥 Process 選項。
+- `Roast Level` 必填；使用 `light`、`medium_light`、`medium`、`medium_dark`、`dark` canonical values。UI 分別顯示 `Light`、`Medium Light`、`Medium`、`Medium Dark`、`Dark`。
+- `Variety` 選填；維持 trimmed、nullable 的 flexible free-form text，需支援 `74158`、`SL28`、`Gesha`、`SL28 / SL34` 等值。
+
+Canonical stored values 與 display labels 必須分離。Recommendation Engine 直接使用 canonical values，不在 rule evaluation 階段處理 casing 或字串正規化。
+
+Process detail 在 MVP 暫不新增欄位；待有實際 Recommendation 或 Coffee metadata 使用情境時，再定義 optional free-form descriptor，避免提前建立不完整的處理法 taxonomy。
+
 ---
 
 ## 5.2 My Coffee
@@ -438,6 +450,8 @@ Primary Inputs：
 MVP 的 Brewer 固定為 `V60`，作為 Recipe Compatibility Constraint，而不是需要使用者選擇或加權的 Recommendation Input。
 
 當 Region 未知時，系統仍可使用 Process、Roast Level 與 Taste Goal 提供保守的起始建議，不應阻止使用者沖煮。
+
+`Process` 與 `Roast Level` 由 Bean Profile 提供 canonical values；Recommendation Rules 不接受 display labels 或大小寫變體。`Origin` 同樣以 ISO country code 保留，供需要 country-level signal 的規則與未來 matching 使用。
 
 Secondary / Future Inputs：
 
