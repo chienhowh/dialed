@@ -643,6 +643,8 @@ tasteGoal
 
 `region` 可以為空。缺少 Region 時應使用其他已知輸入提供較保守的 fallback，而不是拒絕產生 Brew Plan。
 
+MVP 第一版的 `REGION_RULE_WEIGHTS` 是 typed empty config。因為 Region 是 free-form 且目前沒有 reviewed mapping，缺少或未匹配的 Region 對所有候選都是 neutral；Reasoning 必須明確說明這個 fallback。不得為了讓 Region 產生分數而加入未經確認的字串 normalization 或產區／Recipe correlation。
+
 `process` 與 `roastLevel` 在進入 Recommendation Engine 前已分別是 `ProcessCode` 與 `RoastLevelCode`；Rules 不執行 casing/string normalization。`originCountry` 以 `OriginCode` 表示，display label 不進入 domain decision。
 
 `brewer: 'v60'` 是固定的 compatibility boundary，用來排除不相容的 Recipe，不參與 MVP rule scoring，也不需要使用者選擇。
@@ -740,6 +742,34 @@ TASTE_GOAL_RULE_WEIGHTS
 ```
 
 不得把 magic numbers 分散在 React Components、Server Actions 或各個 rule branches。Configuration 與 rule composition 都必須有 Unit Tests，並驗證相同 input 會產生 deterministic output 與可讀的 reasoning。
+
+MVP 第一版採用以下保守 scoring scale：
+
+```text
+Region exact-match rule   configured points（initial config empty）
+Process                   最高 3 points
+Roast Level               最高 2 points
+Primary Taste Goal        最高 2 points
+Secondary Taste Goal      對應 Taste Goal points × 0.5
+```
+
+所有候選從 `0` 開始並採 additive scoring。Tie-break 固定為：
+
+```text
+Three Pour
+→ 4:6
+→ One Pour
+```
+
+第一版不自動加入未有規格依據的細微 temperature / ratio adjustment。Recipe Template 的 seed `default_ratio`、`default_temperature`、`default_grind_level`、`expected_flavor` 與 steps 是 Plan 起始值；application config 只補上 schema 未包含的 dose 與 target time：
+
+| Recipe | Dose | Target time |
+| --- | ---: | ---: |
+| Three Pour | 15g | 2:15–2:40 |
+| 4:6 | 15g | 3:30–4:00 |
+| One Pour | 15g | 2:00–2:30 |
+
+Water Amount 使用 `dose × template default_ratio`，目前三個 official seed 都產生 240g。每一條實際加分 rule 與 points 必須寫入 Recommendation Reason；Secondary Goal 必須標示 half-weight。
 
 例如：
 

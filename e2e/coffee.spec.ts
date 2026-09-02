@@ -49,9 +49,9 @@ test("creates, displays, edits, archives, and isolates a coffee", async ({ page 
   await expect(page.getByText("Washed", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("link", { name: "Brew This Coffee" }).click();
-  await expect(page.getByText("Milestone 4")).toBeVisible();
-  await expect(page.getByText("No brewing data has been created.")).toBeVisible();
-  await page.getByRole("link", { name: "Back to Coffee" }).click();
+  await expect(page.getByRole("heading", { name: "How do you want it today?" })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Sweet/ })).toBeVisible();
+  await page.getByRole("link", { name: /Hamasho/ }).click();
 
   await page.getByRole("link", { name: "Edit" }).click();
   await expect(page.getByRole("combobox", { name: "Origin" })).toHaveValue("Ethiopia");

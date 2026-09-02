@@ -451,6 +451,8 @@ MVP 的 Brewer 固定為 `V60`，作為 Recipe Compatibility Constraint，而不
 
 當 Region 未知時，系統仍可使用 Process、Roast Level 與 Taste Goal 提供保守的起始建議，不應阻止使用者沖煮。
 
+MVP 第一版不為 free-form Region 宣稱未經校準的 Recipe correlation。未提供 Region，或目前沒有 reviewed exact-match rule 時，Region 使用 transparent neutral fallback；Recommendation Reason 必須說明 Region 未改變分數。未來只有在具體 mapping 經確認後，才加入集中式 Region rule config。
+
 `Process` 與 `Roast Level` 由 Bean Profile 提供 canonical values；Recommendation Rules 不接受 display labels 或大小寫變體。`Origin` 同樣以 ISO country code 保留，供需要 country-level signal 的規則與未來 matching 使用。
 
 Secondary / Future Inputs：

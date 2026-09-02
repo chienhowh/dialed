@@ -1,6 +1,6 @@
 begin;
 
-select plan(17);
+select plan(19);
 
 insert into auth.users (
   id,
@@ -137,6 +137,14 @@ select throws_ok(
 select is_empty(
   $$update public.coffees set notes = 'forbidden' where id = 'b2000000-0000-4000-8000-000000000001' returning id$$,
   'a user cannot update another user coffee'
+);
+select is_empty(
+  $$update public.dial_in_threads set status = 'abandoned' where id = 'b3000000-0000-4000-8000-000000000001' returning id$$,
+  'a user cannot update another user dial-in thread'
+);
+select is_empty(
+  $$update public.brew_plans set grind_level = 'forbidden' where id = 'b4000000-0000-4000-8000-000000000001' returning id$$,
+  'a user cannot update another user brew plan'
 );
 select throws_ok(
   $$insert into public.brew_plan_steps (brew_plan_id, step_order, step_type, start_time, target_water)
