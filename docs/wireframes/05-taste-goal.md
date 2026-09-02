@@ -57,6 +57,9 @@ Short helper copy may be shown:
 
 - Primary Goal: required
 - Secondary Goal: optional
+- Primary Goal has greater influence than Secondary Goal; the UX does not imply a fixed numeric multiplier.
+- Taste Goals express flavor direction. They do not permanently map to specific Recipe Templates.
+- If no reviewed strategy supports a selected goal, continue with a conservative fallback rather than inventing a Recipe relationship.
 - Starting a new Taste Goal can create a new Dial-in Thread.
 - Reusing an existing Taste Goal may optionally connect to an existing Dial-in if the user chooses Continue instead.
 

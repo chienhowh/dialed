@@ -69,5 +69,5 @@ Do **not** automatically start Taste Goal selection.
 
 ## Notes
 
-- `Region` is an important recommendation signal but should not necessarily block creation when unknown.
+- `Region` remains useful Bean Profile context, but is neutral in Recommendation Model v1 until calibrated rules exist. It does not block creation when unknown.
 - Keep advanced origin data optional.

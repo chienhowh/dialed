@@ -17,8 +17,9 @@ They are **not visual design specifications**. Colors, typography, spacing, icon
 4. A previous Dial-in can be continued without forcing the user to keep the same taste goal every day.
 5. Brewing interaction must require minimal phone interaction.
 6. Actual brew data should be captured automatically where possible and be optional to correct afterward.
-7. Adjustment suggestions should remain available after the brew session and can be used to create the next Brew Plan.
+7. Adjustment choices should remain available after the brew session. Dialed may recommend one valid strategy, but the user chooses ONE primary-variable change to create the next Brew Plan.
 8. `Brew` is an action, not a bottom-navigation destination.
+9. A recommendation is a conservative starting point built from a Brewing Strategy, not a claim that one Recipe is best for a Bean Profile.
 
 ## MVP Navigation
 
@@ -59,7 +60,7 @@ Adding a coffee does **not** immediately ask for a Taste Goal.
 
 ### Continue Dial-in
 
-`Home / Coffee Detail → Existing Dial-in → Adjustment Suggestion → Next Brew Plan → Guided Brew`
+`Home / Coffee Detail → Existing Dial-in → Desired Direction → Adjustment Choices → User Selects ONE → Next Brew Plan → Guided Brew`
 
 ### Brew Again
 

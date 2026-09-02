@@ -8,14 +8,14 @@
 
 產品不只是沖煮計時器或咖啡紀錄工具，而是透過：
 
-**咖啡豆特徵 + 當次期望風味 + 沖煮方法**
+**咖啡豆特徵 + 當次期望風味**
 
-提供一個合理的起始 Brew Plan，並透過每次實際沖煮與 Taste Feedback，協助使用者逐杯調整。
+選擇一個有依據的 Brewing Strategy，再以適合的 Recipe / Technique 與保守起始參數提供一個合理的 Brew Plan，並透過每次實際沖煮與 Taste Feedback，協助使用者逐杯調整。
 
 長期希望系統能理解：
 
-- 這類咖啡豆通常適合哪些沖法
-- 不同 Recipe 對風味的可能影響
+- 不同 Bean Profile 如何影響保守起始參數
+- 不同 Brewing Strategy 與 Recipe-specific controls 對風味的可能影響
 - 類似咖啡豆的其他玩家如何沖
 - 使用者自己的風味偏好
 - 同一支咖啡過去如何逐杯調整
@@ -74,7 +74,7 @@ MVP 不以完全沒有手沖經驗的新手為主要 Target User。
 今天想喝什麼風味？
 Taste Goal
         ↓
-Recipe Recommendation
+Recommended Starting Point
         ↓
 Generate Brew Plan
         ↓
@@ -96,7 +96,11 @@ Existing Dial-in Thread
     ↓
 Previous Feedback
     ↓
-Adjustment Suggestion
+Desired Adjustment Direction
+    ↓
+Candidate Adjustment Strategies
+    ↓
+User Selects ONE
     ↓
 Next Brew Plan
     ↓
@@ -135,12 +139,12 @@ Optional：
 
 主要用途：
 
-- Recipe Recommendation
+- Recommendation Context
 - Community Matching
 - Similar Bean Search
 - Preference Analytics
 
-`Region` 為 Recommendation Engine 的重要輸入之一，但 UI 不一定強制使用者一定填寫。
+Bean Profile 為 Recommendation 提供起始 Context，不代表某一類 Coffee 必須使用特定 Recipe。Recommendation Model v1 中，只有 Roast Level 可以在有 reviewed rule 支持時影響保守起始 extraction parameters；Process、Region、Origin 與 Variety 均保持 neutral。這些 neutral attributes 仍保留作為 Context，並供未來校準後的 Recommendation version 使用。
 
 MVP Bean Profile 欄位契約：
 
@@ -186,7 +190,9 @@ Roaster / Product Name 是額外 Context，不作為 Community Matching 的唯�
 
 ## 5.3 Recipe Template
 
-Recipe 是可重複使用的沖煮方法模板。
+Recipe 是可重複使用的沖煮方法模板，也是實作 Brewing Strategy 的沖煮 framework。
+
+Recipe Template 不是 Recommendation Engine 的最終目的，也不代表系統已證明它是某支 Coffee 的最佳沖法。它提供可執行的 technique、defaults 與 steps，讓選定的 Brewing Strategy 能產生 Recommended Starting Point。
 
 MVP Active Official Recipe Templates：
 
@@ -247,9 +253,35 @@ Taste Goal 屬於 Brew Plan / Dial-in Thread。
 
 **不屬於 My Coffee。**
 
+Primary Taste Goal 必須比 Secondary Taste Goal 更能影響 Brewing Strategy；產品契約不指定固定數字 multiplier。
+
+Taste Goal 定義使用者想前往的 flavor direction，不直接等同某個 Recipe。PRODUCT 不建立 `Sweet → Recipe X`、`Bright → Recipe Y`、`Clean → Recipe Z` 等永久 mapping；只有經 reviewed evidence 支持的具體對應，才能進入可配置的 Recommendation Knowledge。缺少支持時使用保守、neutral fallback。
+
 ---
 
-## 5.5 Dial-in Thread
+## 5.5 Brewing Strategy
+
+代表：
+
+> **Dialed 準備如何朝當次 Taste Goal 前進。**
+
+概念流程：
+
+```text
+Bean Profile + Taste Goal
+        ↓
+Brewing Strategy
+        ↓
+Recipe / Technique + Starting Parameters
+        ↓
+Recommended Starting Point
+```
+
+Brewing Strategy 可以使用特定 Recipe 真正支援的 controls，但不得為了讓推薦結果看起來多樣，就虛構 Taste Goal、Process、Region、Origin 或 Variety 與 Recipe 的關係。
+
+---
+
+## 5.6 Dial-in Thread
 
 代表：
 
@@ -293,7 +325,7 @@ Complex
 
 ---
 
-## 5.6 Brew Plan
+## 5.7 Brew Plan
 
 代表：
 
@@ -308,9 +340,11 @@ Taste Goal
 +
 V60 Brewing Context
 +
+Brewing Strategy
++
 Recipe Template
 +
-Recommendation Rules
+Recommendation Knowledge
 ```
 
 包含：
@@ -336,7 +370,7 @@ Recommendation Rules
 
 ---
 
-## 5.7 Brew Session
+## 5.8 Brew Session
 
 代表：
 
@@ -368,7 +402,7 @@ Actual Water、Temperature 等需要額外操作的資訊，可以沖完後再�
 
 ---
 
-## 5.8 Taste Feedback
+## 5.9 Taste Feedback
 
 沖煮後記錄結果。
 
@@ -426,49 +460,70 @@ MVP 不需要 AI。
 使用 Rule-based Recommendation。
 
 ```text
-Bean Profile
-+
-Taste Goal
+Bean Profile + Taste Goal
         ↓
-Filter Compatible MVP Catalog Recipes
+Brewing Strategy
         ↓
-Select Recipe Template
+Recipe / Technique + Starting Parameters
         ↓
-Adjust Parameters
-        ↓
-Generate Brew Plan
+Recommended Starting Point
 ```
 
-Primary Inputs：
+Recommendation 不是「替 Recipe 打分並挑出 winner」。Recipe Template 是實作 Strategy 的 framework，而不是 Recommendation 的最終目的。
 
-- Region
-- Process
+各項 Context 的責任：
+
+- Taste Goal：定義使用者這一杯希望前往的 flavor direction。
+- Brewing Strategy：定義 Dialed 如何嘗試往該方向移動；只有在 Recipe 確實支援時，才使用 recipe-specific controls。
+- Bean Profile：協助建立合理起點，不推論某類 Coffee 必須使用某個 Recipe。
+
+Recommendation Model v1 對 Bean Profile attributes 的規則：
+
+- Roast Level：只有在 reviewed rules 支持時，才可以影響保守起始 extraction parameters。
+- Process：neutral，直到存在 calibrated rules。
+- Region：neutral，直到存在 calibrated rules。
+- Origin：neutral。
+- Variety：neutral。
+
+Neutral attributes 仍保留於 Context，並可供未來 Recommendation versions 使用；缺少支持的關係必須採用 transparent neutral fallback，不得發明 rule。
+
+Taste Goal 對 Strategy 的影響必須遵守：
+
+- Primary Taste Goal 的影響大於 Secondary Taste Goal。
+- PRODUCT 不要求 `0.5` 或其他固定 numeric multiplier。
+- PRODUCT 不永久 hard-code Taste Goal → Recipe mapping。
+- Reviewed mappings 與 exact parameter values 屬於可獨立校準的 Recommendation Knowledge，而不是 product truth。
+
+MVP 的 Brewer 固定為 `V60`，只作為 Recipe Compatibility Constraint，不是需要使用者選擇或加權的 Recommendation Input。
+
+推薦結果應定位為：
+
+> **Recommended Starting Point**
+
+它是保守、可解釋且可開始驗證的起點，不宣稱是 optimal、best 或唯一正確 Recipe。
+
+Recommendation explanation 只描述實際套用的 rules。若規則屬於產品 heuristic，而不是較強的 method/domain-supported behavior，說明必須清楚區分；neutral attribute 沒有參與決策時，不得把它包裝成推薦理由。
+
+Roast Level 可以影響保守起始 extraction parameters，但 PRODUCT 不指定 `Light = 94°C`、`Medium = 92°C`、`Dark = 88°C` 等未 reviewed exact values。具體數值必須存在於 reviewed、configurable 且可獨立校準的 Recommendation Knowledge。
+
+Current Context：
+
 - Roast Level
 - Primary Taste Goal
 - Optional Secondary Taste Goal
+- Region（neutral）
+- Process（neutral）
+- Origin（neutral）
+- Variety（neutral）
+- V60 Compatibility Constraint
 
-MVP 的 Brewer 固定為 `V60`，作為 Recipe Compatibility Constraint，而不是需要使用者選擇或加權的 Recommendation Input。
+Future Context：
 
-當 Region 未知時，系統仍可使用 Process、Roast Level 與 Taste Goal 提供保守的起始建議，不應阻止使用者沖煮。
-
-MVP 第一版不為 free-form Region 宣稱未經校準的 Recipe correlation。未提供 Region，或目前沒有 reviewed exact-match rule 時，Region 使用 transparent neutral fallback；Recommendation Reason 必須說明 Region 未改變分數。未來只有在具體 mapping 經確認後，才加入集中式 Region rule config。
-
-`Process` 與 `Roast Level` 由 Bean Profile 提供 canonical values；Recommendation Rules 不接受 display labels 或大小寫變體。`Origin` 同樣以 ISO country code 保留，供需要 country-level signal 的規則與未來 matching 使用。
-
-Secondary / Future Inputs：
-
-- Variety
 - Grinder
 - Roaster
 - Personal History
 - Community Data
 - Previous Brew Sessions
-
-Recommendation 應定位為：
-
-> **Recommended Starting Point**
-
-而不是宣稱為唯一最佳 Recipe。
 
 ---
 
@@ -573,7 +628,11 @@ Actual Brew Data 與詳細 Sensory Feedback 都可以 Optional 展開。
 ```text
 Taste Feedback
  ↓
-Adjustment Suggestion
+Desired Adjustment Direction
+ ↓
+Candidate Adjustment Strategies
+ ↓
+User chooses ONE
  ↓
 Next Brew Plan
 ```
@@ -585,7 +644,16 @@ Previous:
 Too Sour
 Sweetness Low
 
-Change ONE thing:
+Desired direction:
+Increase extraction
+
+Candidate strategies:
+- Grind finer
+- Increase water temperature
+- Increase agitation / adjust pour structure
+
+User selection:
+Grind finer
 
 Grind
 Medium-fine
@@ -607,11 +675,48 @@ Adjustment Suggestion 必須持續存在於：
 - Dial-in Thread
 - Create Next Brew Plan Flow
 
+標準 Dial-in adjustment 的核心規則是：
+
+> **一次只改變 ONE 個 primary brewing variable，其他參數在實務可行範圍內維持不變。**
+
+目的不是一次猜中最佳答案，而是進行 controlled experiment，讓下一杯能判斷這一項改變是否改善結果。
+
+完整互動概念：
+
+```text
+Brew
+ ↓
+Taste Feedback
+ ↓
+Desired Adjustment Direction
+ ↓
+Candidate Adjustment Strategies
+ ↓
+Dialed ranks and recommends one
+ ↓
+User selects ONE valid strategy
+ ↓
+Next Brew Plan
+```
+
+Adjustment terminology：
+
+- Desired Adjustment Direction：根據 feedback 判斷下一杯希望移動的方向。
+- Candidate Adjustment Strategies：可以朝該方向移動的有效 one-variable choices。
+- Recommended Adjustment：Dialed 排名最高、預先建議的 candidate。
+- Selected Adjustment：使用者實際選擇、會套用到下一個 Brew Plan 的 candidate。
+
+例如希望 Increase extraction 時，Grind finer、Increase water temperature、Increase agitation / adjust pour structure 都可能是候選。Dialed 可以排序並推薦其中一個，但使用者可以選擇另一個有效策略；Next Brew Plan 只能套用選定的那一項 primary-variable change。
+
+Recipe / method switching 通常同時改變多個沖煮條件，因此不屬於標準 one-variable adjustment。切換 Recipe Template 或 brewing framework 應視為建立不同 baseline / Brewing Strategy，再從該起點繼續學習。
+
+目前 PRODUCT 不決定 method switching 是否必須建立新的 Dial-in Thread。Dial-in Thread 目前以 `Coffee + Taste Goal` 定義，但 method switch 會重設 baseline；這項 identity / continuity 問題保留為待定決策，不得由 implementation 靜默決定。
+
 下一次使用者可以：
 
 ### Continue Dial-in
 
-使用 Recommendation Adjustment。
+檢視 recommended adjustment 與其他有效候選，選擇 ONE 個 strategy 產生下一個 Brew Plan。
 
 ### Brew Again
 

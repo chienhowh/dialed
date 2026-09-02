@@ -605,55 +605,50 @@ recommendBrewPlan({
 流程：
 
 ```text
-Input
- ↓
-Filter Compatible MVP Catalog Recipes
- ↓
-Score Recipe Templates
- ↓
-Select Starting Recipe
- ↓
-Apply Parameter Adjustments
- ↓
-Generate Brew Plan
+Bean Profile + Taste Goal
+        ↓
+Resolve Supported Brewing Strategy
+        ↓
+Recipe / Technique + Starting Parameters
+        ↓
+Recommended Starting Point
 ```
+
+Recommendation Engine 不以「對所有 Recipe additive scoring，再挑最高分 winner」作為 domain contract。Recipe Template 是實作 Brewing Strategy 的 framework；Engine 的輸出目標是保守、可解釋、可開始驗證的 Brew Plan。
+
+Milestone 4.1 只修正文檔邊界，不要求修改現行 recommendation implementation、資料庫 schema 或 UI。
 
 ---
 
 # 13. Recommendation Inputs
 
-Primary：
+Decision Context：
 
 ```text
-region
-process
-roastLevel
 primaryTasteGoal
 secondaryTasteGoal
-```
-
-MVP 的優先順序為：
-
-```text
-region
-process
 roastLevel
-tasteGoal
-```
-
-`region` 可以為空。缺少 Region 時應使用其他已知輸入提供較保守的 fallback，而不是拒絕產生 Brew Plan。
-
-MVP 第一版的 `REGION_RULE_WEIGHTS` 是 typed empty config。因為 Region 是 free-form 且目前沒有 reviewed mapping，缺少或未匹配的 Region 對所有候選都是 neutral；Reasoning 必須明確說明這個 fallback。不得為了讓 Region 產生分數而加入未經確認的字串 normalization 或產區／Recipe correlation。
-
-`process` 與 `roastLevel` 在進入 Recommendation Engine 前已分別是 `ProcessCode` 與 `RoastLevelCode`；Rules 不執行 casing/string normalization。`originCountry` 以 `OriginCode` 表示，display label 不進入 domain decision。
-
-`brewer: 'v60'` 是固定的 compatibility boundary，用來排除不相容的 Recipe，不參與 MVP rule scoring，也不需要使用者選擇。
-
-Secondary：
-
-```text
+process
+region
+originCountry
 variety
 ```
+
+責任與 v1 行為：
+
+- `primaryTasteGoal`：主要 flavor direction，影響必須大於 `secondaryTasteGoal`。
+- `secondaryTasteGoal`：optional 次要方向；架構不固定為 `0.5` 或其他永久 numeric multiplier。
+- `roastLevel`：只有 reviewed rules 支持時，才可調整保守起始 extraction parameters。
+- `process`：neutral，直到 calibrated rules 存在。
+- `region`：neutral，直到 calibrated rules 存在。
+- `originCountry`：neutral。
+- `variety`：neutral。
+
+Neutral attributes 仍應傳入或保留於 Recommendation Context，讓未來版本可在 reviewed knowledge 出現後使用；v1 不得因為欄位存在就推論 Recipe preference。缺少或未支援的關係走 neutral fallback，而不是拒絕產生 Brew Plan。
+
+`process`、`roastLevel` 與 `originCountry` 在進入 Recommendation Engine 前已分別是 canonical `ProcessCode`、`RoastLevelCode` 與 `OriginCode`；Rules 不執行 casing/string normalization。`region` 與 `variety` 維持 trimmed nullable free-form Context。
+
+`brewer: 'v60'` 是固定 compatibility boundary，用來排除不相容 Recipe，不是 ranking signal，也不需要使用者選擇。
 
 Future：
 
@@ -684,6 +679,16 @@ grinder
 }
 ```
 
+概念上，output 是「Resolved Brewing Strategy + supporting Recipe / Technique + Starting Parameters」所建立的 Recommended Starting Point。Milestone 4.1 不新增 `brewing_strategy` database column；`recipe_template_id`、Brew Plan snapshot 與 `recommendation_reason` 維持既有 persistence contract。
+
+Reasoning 只能包含實際套用的 rule，並應標示 evidence strength：
+
+- `product_heuristic`：保守產品 heuristic，仍需透過使用結果校準。
+- `method_supported` / `domain_supported`：有較強 method 或 domain evidence 支持的行為。
+- `neutral_fallback`：缺少 supported relationship 時使用的保守 fallback。
+
+這些是 Recommendation Knowledge / reasoning 的 conceptual labels；Milestone 4.1 不要求 schema migration。未參與決策的 neutral attribute 不得被描述成選擇某個 Recipe 的原因。
+
 `source`：
 
 ```text
@@ -711,16 +716,17 @@ manual
 
 ```text
 features/recommendation/
-├── recommend-recipe.ts
-├── adjust-plan.ts
+├── recommend-brew-plan.ts
+├── resolve-strategy.ts
+├── apply-starting-parameters.ts
 ├── config.ts
 ├── rules/
 │   ├── roast.ts
-│   ├── process.ts
-│   ├── region.ts
 │   └── taste-goal.ts
 └── types.ts
 ```
+
+這是 conceptual module boundary，不要求 Milestone 4.1 建立或重新命名檔案。
 
 Rules 應：
 
@@ -731,35 +737,27 @@ Rules 應：
 
 初始 rules 與 recipe defaults 應採取保守、可解釋的 starting point，不宣稱科學精準或唯一最佳解。
 
-所有仍需校準的參數與權重必須集中在具名、typed、readonly configuration constants，例如：
+所有仍需校準的 strategy mappings、fallback 與起始參數必須集中在具名、typed、readonly Recommendation Knowledge，例如：
 
 ```ts
 RECIPE_DEFAULTS
-REGION_RULE_WEIGHTS
-PROCESS_RULE_WEIGHTS
-ROAST_RULE_WEIGHTS
-TASTE_GOAL_RULE_WEIGHTS
+STRATEGY_RULES
+ROAST_STARTING_PARAMETER_RULES
+NEUTRAL_FALLBACK
 ```
 
-不得把 magic numbers 分散在 React Components、Server Actions 或各個 rule branches。Configuration 與 rule composition 都必須有 Unit Tests，並驗證相同 input 會產生 deterministic output 與可讀的 reasoning。
+不得把 magic numbers 或永久 `Taste Goal → Recipe` mapping 分散在 React Components、Server Actions 或 rule branches。Recommendation Knowledge 與 rule composition 都必須有 Unit Tests，驗證相同 input 產生 deterministic output，且 explanation 只描述實際套用的 rules。
 
-MVP 第一版採用以下保守 scoring scale：
+Knowledge entry 必須能獨立 review、calibrate 與移除。不得把以下關係當成既定 coffee-domain knowledge：
 
-```text
-Region exact-match rule   configured points（initial config empty）
-Process                   最高 3 points
-Roast Level               最高 2 points
-Primary Taste Goal        最高 2 points
-Secondary Taste Goal      對應 Taste Goal points × 0.5
-```
+- Washed → Three Pour
+- Natural → One Pour
+- Light → 4:6
+- Dark → One Pour
 
-所有候選從 `0` 開始並採 additive scoring。Tie-break 固定為：
+既有 `1 / 2 / 3` point magnitudes 沒有 physical 或 sensory meaning，不屬於架構契約。Taste Goal 可以影響 Brewing Strategy，但具體 reviewed mapping 放在 configurable Recommendation Knowledge；沒有支持的 Taste Goal strategy 時使用 `NEUTRAL_FALLBACK`。
 
-```text
-Three Pour
-→ 4:6
-→ One Pour
-```
+Roast Level exact starting values 同樣放在 reviewed configuration，並可獨立校準。Architecture 不把 `Light = 94°C`、`Medium = 92°C`、`Dark = 88°C` 等未 reviewed 數值視為 product truth。
 
 第一版不自動加入未有規格依據的細微 temperature / ratio adjustment。Recipe Template 的 seed `default_ratio`、`default_temperature`、`default_grind_level`、`expected_flavor` 與 steps 是 Plan 起始值；application config 只補上 schema 未包含的 dose 與 target time：
 
@@ -769,48 +767,50 @@ Three Pour
 | 4:6 | 15g | 3:30–4:00 |
 | One Pour | 15g | 2:00–2:30 |
 
-Water Amount 使用 `dose × template default_ratio`，目前三個 official seed 都產生 240g。每一條實際加分 rule 與 points 必須寫入 Recommendation Reason；Secondary Goal 必須標示 half-weight。
-
-例如：
-
-```text
-Sweet + Clean
-+
-Washed
-+
-Light Roast
-
-→ Three Pour score +X
-```
-
-具體權重不在 Architecture 階段決定。
+Water Amount 使用 `dose × template default_ratio`，目前三個 official seed 都產生 240g。Recommendation Reason 不顯示虛構 score 或未套用 attribute；它描述 selected strategy、使用的 supporting knowledge、applied starting-parameter adjustments 與 fallback status。
 
 ---
 
 # 16. Adjustment Engine
 
-入口：
+Future conceptual boundary：
 
-```ts
-createAdjustmentSuggestion({
-  brewPlan,
-  brewSession,
-  tasteFeedback,
-})
+```text
+Taste Feedback
++ Brew Plan
++ actual Brew Session
++ Dial-in History
+        ↓
+Desired Adjustment Direction
+        ↓
+Candidate Adjustment Strategies
+        ↓
+Ranked Choices
+        ↓
+User Selection
+        ↓
+Next Brew Plan
 ```
 
 原則：
 
-> **一次優先調整一個主要變因。**
+> **標準 Dial-in iteration 一次只改變 ONE 個 primary brewing variable，其他參數在實務可行範圍內維持不變。**
+
+Engine 應先從 feedback 與 actual execution 判斷 desired direction（例如 `increase_extraction`），再產生多個有效 candidate strategies。Dialed 可以排序並推薦其中一個，但 Next Brew Plan 由使用者選擇的 ONE 個 strategy 產生。
+
+跨 layer 使用一致術語：`Desired Adjustment Direction` → `Candidate Adjustment Strategies` → `Recommended Adjustment` / `Ranked Choices` → `Selected Adjustment` → `Next Brew Plan`。
 
 例如：
 
 ```text
-Too Sour
-+
-Sweetness lower than target
+Desired direction: Increase extraction
 
-→ grind slightly finer
+Candidate strategies:
+1. Grind finer (recommended)
+2. Increase water temperature
+3. Increase agitation / adjust pour structure
+
+User selection: Grind finer
 ```
 
 下一杯：
@@ -818,12 +818,25 @@ Sweetness lower than target
 ```text
 Previous Brew Plan
 +
-Accepted Adjustment
+Selected ONE-variable Adjustment
 =
 New Brew Plan
 ```
 
 其他參數維持不變。
+
+Future ranking 可以使用 current parameters 與 previous outcomes 作為 Context，例如：
+
+- temperature 已高時，降低「再提高 temperature」的 priority。
+- drawdown 已慢時，降低「再磨細」的 priority。
+
+以上是 architectural examples，不是 Milestone 4.1 或 Milestone 5 implementation requirements。
+
+切換 Recipe Template / brewing framework 通常同時改變多個條件，不應表示成標準 one-variable adjustment。Method switching 應建立不同 baseline / Brewing Strategy，再從新 baseline 評估結果。
+
+既有 `adjustment_suggestions` schema 可以持久化目前 recommended / selected suggestion 與 status；候選集合、ranking metadata 與 evidence labels 在 Milestone 4.1 只是 conceptual boundary，不新增 migration。未來實作前需先決定是否需要額外 persistence。
+
+Dial-in Thread 現在以 `Coffee + Taste Goal` 定義。Method switch 是否延續同一 Thread 或建立新 Thread 尚未決定；Architecture 不在此 milestone 靜默改變 identity semantics。
 
 ---
 
@@ -1106,8 +1119,11 @@ Create Brew Plan
 
 - Recommendation Rules
 - MVP recommendation candidates include only Three Pour, 4:6, and One Pour
-- Recommendation configuration constants and deterministic tie-breaking
-- Adjustment Rules
+- Recommendation Knowledge, neutral fallback, deterministic output, and applied-rule-only reasoning
+- Primary Taste Goal influence is greater than Secondary Taste Goal without requiring a fixed multiplier
+- Neutral Process / Region / Origin / Variety do not change Recommendation Model v1 output
+- Adjustment direction, candidate generation, ranking, and one-variable plan generation
+- Recipe / method switching is not treated as a one-variable adjustment
 - Plan generation
 - Plan deviation calculation
 - Timer calculations

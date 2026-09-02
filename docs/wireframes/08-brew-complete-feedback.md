@@ -89,7 +89,7 @@ Finish        2:20     2:31
 
 If adjustment is appropriate:
 
-`Save → Adjustment Suggestion`
+`Save → Desired Adjustment Direction → Adjustment Choices`
 
 If no adjustment is needed:
 

@@ -19,7 +19,7 @@ Recommendation and Brew Plan are combined into one UX screen.
 │ Sweet + Clean               │
 │                             │
 │ ┌─────────────────────────┐ │
-│ │ Recommended             │ │
+│ │ Recommended start       │ │
 │ │ THREE POUR              │ │
 │ │                         │ │
 │ │ Sweetness    ●●●●○      │ │
@@ -55,11 +55,16 @@ Why this brew?
 
 You selected Sweet + Clean.
 
-This plan uses a balanced three-pour approach as a
-starting point for this bean profile.
+No reviewed goal-specific strategy is available, so this
+plan uses the configured neutral V60 baseline.
+
+Neutral fallback applied: Process and Region did not
+affect this plan.
 
 Recommended starting point — not a guaranteed best recipe.
 ```
+
+Recommendation reasons show only rules actually applied. Copy must distinguish conservative product heuristics from stronger method/domain-supported behavior and must not imply that a neutral Bean Profile attribute selected the Recipe.
 
 ## Edit Plan
 
