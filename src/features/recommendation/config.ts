@@ -1,13 +1,8 @@
-import type { ProcessCode, RoastLevelCode } from "@/domain/coffee/bean-profile";
+import type { RoastLevelCode } from "@/domain/coffee/bean-profile";
 import type { ActiveRecipeName } from "@/domain/recipe/types";
 import type { TasteGoal } from "@/domain/taste/taste-goal";
 
-type WeightedPreference = {
-  points: number;
-  reason: string;
-};
-
-type RecipeWeights = Partial<Record<ActiveRecipeName, WeightedPreference>>;
+import type { BrewingStrategy, RecommendationReason, StartingParameters } from "./types";
 
 export const RECIPE_DEFAULTS = {
   "Three Pour": { coffeeDose: 15, targetBrewTimeMax: 160, targetBrewTimeMin: 135 },
@@ -19,82 +14,40 @@ export const RECIPE_DEFAULTS = {
   targetBrewTimeMin: number;
 }>;
 
-export const RECIPE_TIE_BREAK_ORDER = ["Three Pour", "4:6", "One Pour"] as const;
+export type StrategyRule = {
+  reasons: readonly RecommendationReason[];
+  recipeName: ActiveRecipeName;
+  strategy: BrewingStrategy;
+};
 
-// Region remains free-form in MVP. No region-to-recipe correlations are claimed until
-// a reviewed mapping exists; unknown and missing values intentionally use a neutral fallback.
-export const REGION_RULE_WEIGHTS = {} as const satisfies Readonly<Record<string, RecipeWeights>>;
+// No Taste Goal has a reviewed strategy rule in Recommendation Model v1 yet.
+// Primary Taste Goal is the future lookup key; Secondary Taste Goal remains context only.
+export const STRATEGY_RULES: Readonly<Partial<Record<TasteGoal, StrategyRule>>> = {};
 
-export const PROCESS_RULE_WEIGHTS = {
-  washed: {
-    "Three Pour": { points: 3, reason: "Washed process supports a structured, clarity-forward multi-pour starting point." },
-    "4:6": { points: 2, reason: "Washed process can suit the separation of a staged 4:6 approach." },
+// Three Pour is a deterministic product fallback, not a coffee-domain claim about
+// any Bean Profile or Taste Goal being inherently best suited to this Recipe Template.
+export const NEUTRAL_FALLBACK = {
+  reasons: [
+    {
+      evidence: "product_heuristic",
+      message: "Three Pour is Dialed's configured product fallback for a repeatable starting point, not a claim that it is optimal for this coffee.",
+    },
+  ],
+  recipeName: "Three Pour",
+  strategy: {
+    approach: "Use a repeatable official V60 framework without attributing the choice to unreviewed coffee characteristics.",
+    evidence: "neutral_fallback",
+    id: "neutral_v60_baseline",
+    name: "Neutral V60 baseline",
   },
-  natural: {
-    "Three Pour": { points: 1, reason: "Three Pour remains a measured starting point for a natural process." },
-    "4:6": { points: 2, reason: "The staged 4:6 approach can present an expressive natural process." },
-    "One Pour": { points: 3, reason: "Natural process favors the round, approachable profile of One Pour." },
-  },
-  honey: {
-    "Three Pour": { points: 3, reason: "Honey process favors the balanced structure of Three Pour." },
-    "4:6": { points: 1, reason: "4:6 remains an expressive option for a honey process." },
-    "One Pour": { points: 2, reason: "One Pour supports a round starting point for a honey process." },
-  },
-  other: {},
-} as const satisfies Record<ProcessCode, RecipeWeights>;
+} as const satisfies StrategyRule;
 
-export const ROAST_RULE_WEIGHTS = {
-  light: {
-    "Three Pour": { points: 1, reason: "Light roast keeps Three Pour in consideration for balanced extraction." },
-    "4:6": { points: 2, reason: "Light roast favors the expressive profile of 4:6." },
-  },
-  medium_light: {
-    "Three Pour": { points: 2, reason: "Medium Light roast favors the balanced Three Pour baseline." },
-    "4:6": { points: 1, reason: "Medium Light roast can support an expressive 4:6 baseline." },
-  },
-  medium: {
-    "Three Pour": { points: 2, reason: "Medium roast favors the balanced Three Pour baseline." },
-    "One Pour": { points: 1, reason: "Medium roast can suit the rounder One Pour profile." },
-  },
-  medium_dark: {
-    "Three Pour": { points: 1, reason: "Three Pour remains a measured option for Medium Dark roast." },
-    "One Pour": { points: 2, reason: "Medium Dark roast favors the rounder One Pour baseline." },
-  },
-  dark: {
-    "One Pour": { points: 2, reason: "Dark roast favors the simple, round One Pour baseline." },
-  },
-} as const satisfies Record<RoastLevelCode, RecipeWeights>;
+export type RoastStartingParameterRule = {
+  overrides: Partial<Pick<StartingParameters, "grindLevel" | "ratio" | "waterTemperature">>;
+  reason: RecommendationReason;
+};
 
-export const TASTE_GOAL_RULE_WEIGHTS = {
-  sweet: {
-    "Three Pour": { points: 2, reason: "Sweet favors the balanced sweetness direction of Three Pour." },
-    "One Pour": { points: 1, reason: "Sweet also supports the round profile of One Pour." },
-  },
-  bright: {
-    "Three Pour": { points: 1, reason: "Three Pour can retain a bright but balanced profile." },
-    "4:6": { points: 2, reason: "Bright favors the expressive profile of 4:6." },
-  },
-  clean: {
-    "Three Pour": { points: 2, reason: "Clean favors the clarity direction of Three Pour." },
-    "4:6": { points: 1, reason: "Clean also keeps the staged 4:6 approach in consideration." },
-  },
-  full_body: {
-    "Three Pour": { points: 1, reason: "Three Pour can provide body while staying balanced." },
-    "One Pour": { points: 2, reason: "Full Body favors the rounder mouthfeel direction of One Pour." },
-  },
-  juicy: {
-    "Three Pour": { points: 1, reason: "Three Pour can keep a juicy profile balanced." },
-    "4:6": { points: 2, reason: "Juicy favors the expressive profile of 4:6." },
-  },
-  balanced: {
-    "Three Pour": { points: 2, reason: "Balanced directly favors the Three Pour baseline." },
-    "4:6": { points: 1, reason: "4:6 remains an expressive but balanced option." },
-    "One Pour": { points: 1, reason: "One Pour remains a round but balanced option." },
-  },
-  complex: {
-    "Three Pour": { points: 1, reason: "Three Pour can keep a complex profile structured." },
-    "4:6": { points: 2, reason: "Complex favors the layered, staged 4:6 approach." },
-  },
-} as const satisfies Record<TasteGoal, RecipeWeights>;
-
-export const SECONDARY_TASTE_GOAL_MULTIPLIER = 0.5;
+// Architectural extension point only. No reviewed Roast Level parameter rule is approved yet.
+export const ROAST_STARTING_PARAMETER_RULES: Readonly<
+  Partial<Record<RoastLevelCode, RoastStartingParameterRule>>
+> = {};

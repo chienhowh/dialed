@@ -88,8 +88,12 @@ test("creates, explains, snapshots, edits, and isolates a recommended Brew Plan"
   await expect(page.getByText("240g", { exact: true })).toBeVisible();
   await expect(page.getByText("92°C", { exact: true })).toBeVisible();
   await page.getByText("Why this brew?").click();
-  await expect(page.getByText(/Washed process supports/)).toBeVisible();
-  await expect(page.getByText(/free-form region “Sidama”/)).toBeVisible();
+  const recommendationExplanation = page.locator("details").filter({ hasText: "Why this brew?" });
+  await expect(recommendationExplanation).toContainText("No reviewed strategy rule is available for the primary Sweet goal.");
+  await expect(recommendationExplanation).toContainText("Clean remains secondary context and did not change this starting point.");
+  await expect(recommendationExplanation).toContainText("configured product fallback");
+  await expect(recommendationExplanation).not.toContainText("Washed process");
+  await expect(recommendationExplanation).not.toContainText("Sidama");
 
   const { data: planBeforeEdit, error: planError } = await ownerClient
     .from("brew_plans")
@@ -153,6 +157,27 @@ test("creates, explains, snapshots, edits, and isolates a recommended Brew Plan"
     .single();
   expect(templateError).toBeNull();
   expect(template).toEqual({ default_grind_level: "medium-fine", default_ratio: 16, default_temperature: 92 });
+
+  const { data: coffeeAfterEdit, error: coffeeAfterEditError } = await ownerClient
+    .from("coffees")
+    .select("bean_profile_id, product_name")
+    .eq("id", coffeeId)
+    .single();
+  expect(coffeeAfterEditError).toBeNull();
+  expect(coffeeAfterEdit?.product_name).toBe("Recommendation Coffee");
+  const { data: beanAfterEdit, error: beanAfterEditError } = await ownerClient
+    .from("bean_profiles")
+    .select("origin_country_code, process, region, roast_level, variety")
+    .eq("id", coffeeAfterEdit?.bean_profile_id ?? "")
+    .single();
+  expect(beanAfterEditError).toBeNull();
+  expect(beanAfterEdit).toEqual({
+    origin_country_code: "ET",
+    process: "washed",
+    region: "Sidama",
+    roast_level: "light",
+    variety: "74158",
+  });
 
   await page.getByRole("link", { name: "Start Brewing" }).click();
   await expect(page.getByText("Milestone 5")).toBeVisible();

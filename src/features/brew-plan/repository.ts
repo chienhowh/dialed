@@ -189,9 +189,11 @@ export async function createRecommendedBrewPlan(
   const recipes = await listActiveOfficialRecipes(supabase);
   const recommendation = recommendBrewPlan({
     beanProfile: {
+      originCountry: coffee.beanProfile.originCountry,
       process: coffee.beanProfile.process,
       region: coffee.beanProfile.region,
       roastLevel: coffee.beanProfile.roastLevel,
+      variety: coffee.beanProfile.variety,
     },
     brewer: "v60",
     primaryTasteGoal: tasteGoals.primaryTasteGoal,
@@ -199,6 +201,7 @@ export async function createRecommendedBrewPlan(
   }, recipes);
   const dialInThreadId = crypto.randomUUID();
   const brewPlanId = crypto.randomUUID();
+  const { startingParameters } = recommendation;
 
   const { error: threadError } = await supabase.from("dial_in_threads").insert({
     coffee_id: coffee.id,
@@ -212,21 +215,21 @@ export async function createRecommendedBrewPlan(
   if (threadError) throw new Error("Unable to create dial-in thread.", { cause: threadError });
 
   const { error: planError } = await supabase.from("brew_plans").insert({
-    coffee_dose: recommendation.coffeeDose,
+    coffee_dose: startingParameters.coffeeDose,
     coffee_id: coffee.id,
     dial_in_thread_id: dialInThreadId,
-    expected_flavor: recommendation.expectedFlavor,
-    grind_level: recommendation.grindLevel,
+    expected_flavor: startingParameters.expectedFlavor,
+    grind_level: startingParameters.grindLevel,
     id: brewPlanId,
-    ratio: recommendation.ratio,
+    ratio: startingParameters.ratio,
     recipe_template_id: recommendation.recipeTemplate.id,
-    recommendation_reason: recommendation.reasoning.join("\n\n"),
+    recommendation_reason: recommendation.reasons.map(({ message }) => message).join("\n\n"),
     recommendation_source: recommendation.source,
-    target_brew_time_max: recommendation.targetBrewTimeMax,
-    target_brew_time_min: recommendation.targetBrewTimeMin,
+    target_brew_time_max: startingParameters.targetBrewTimeMax,
+    target_brew_time_min: startingParameters.targetBrewTimeMin,
     user_id: userId,
-    water_amount: recommendation.waterAmount,
-    water_temperature: recommendation.waterTemperature,
+    water_amount: startingParameters.waterAmount,
+    water_temperature: startingParameters.waterTemperature,
   });
 
   if (planError) {
@@ -235,7 +238,7 @@ export async function createRecommendedBrewPlan(
   }
 
   const { error: stepsError } = await supabase.from("brew_plan_steps").insert(
-    recommendation.steps.map((step) => ({
+    startingParameters.steps.map((step) => ({
       brew_plan_id: brewPlanId,
       duration: step.duration,
       id: crypto.randomUUID(),

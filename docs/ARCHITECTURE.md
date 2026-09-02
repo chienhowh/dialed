@@ -616,7 +616,7 @@ Recommended Starting Point
 
 Recommendation Engine 不以「對所有 Recipe additive scoring，再挑最高分 winner」作為 domain contract。Recipe Template 是實作 Brewing Strategy 的 framework；Engine 的輸出目標是保守、可解釋、可開始驗證的 Brew Plan。
 
-Milestone 4.1 只修正文檔邊界，不要求修改現行 recommendation implementation、資料庫 schema 或 UI。
+Recommendation domain 可以在既有 application layer 內對齊此模型，不需要改變資料庫 schema、Brew Plan persistence 或 Recommendation UI flow。
 
 ---
 

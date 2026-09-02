@@ -36,9 +36,9 @@ export function BrewPlanSummary({ plan }: { plan: BrewPlan }) {
         <p className="mt-2 text-lg font-semibold">{formatTasteGoals(plan.primaryTasteGoal, plan.secondaryTasteGoal)}</p>
       </div>
 
-      <section aria-labelledby="recommended-recipe-heading" className="mt-7 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
-        <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Recommended</p>
-        <h2 id="recommended-recipe-heading" className="mt-2 text-2xl font-semibold">{plan.recipeName ?? "Custom Plan"}</h2>
+      <section aria-labelledby="recommended-start-heading" className="mt-7 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
+        <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Recommended start</p>
+        <h2 id="recommended-start-heading" className="mt-2 text-2xl font-semibold">{plan.recipeName ?? "Custom Plan"}</h2>
         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{plan.expectedFlavor}</p>
         <details className="mt-5 border-t border-[var(--border)] pt-4">
           <summary className="cursor-pointer font-semibold">Why this brew?</summary>

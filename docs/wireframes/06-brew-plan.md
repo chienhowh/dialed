@@ -53,13 +53,13 @@ Example:
 ```text
 Why this brew?
 
-You selected Sweet + Clean.
+No reviewed strategy rule is available for the primary
+Sweet goal. Clean remains secondary context and did not
+change this starting point. Dialed used its neutral V60
+baseline.
 
-No reviewed goal-specific strategy is available, so this
-plan uses the configured neutral V60 baseline.
-
-Neutral fallback applied: Process and Region did not
-affect this plan.
+Three Pour is the configured product fallback for a
+repeatable start, not a claim that it is optimal.
 
 Recommended starting point — not a guaranteed best recipe.
 ```
