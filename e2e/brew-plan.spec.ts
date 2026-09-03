@@ -50,7 +50,7 @@ test.afterAll(async () => {
   await Promise.all([deleteTestUser(owner), deleteTestUser(otherUser)]);
 });
 
-test("creates, explains, snapshots, edits, and isolates a recommended Brew Plan", async ({ page }) => {
+test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", async ({ context, page }) => {
   test.setTimeout(60_000);
   const ownerClient = authenticatedClient();
   const coffeeId = await createCoffee(ownerClient, owner);
@@ -180,14 +180,102 @@ test("creates, explains, snapshots, edits, and isolates a recommended Brew Plan"
   });
 
   await page.getByRole("link", { name: "Start Brewing" }).click();
-  await expect(page.getByText("Milestone 5")).toBeVisible();
-  await expect(page.getByText("No Brew Session or timer has been created.")).toBeVisible();
+  await expect(page.getByText("Ready to brew")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeVisible();
   const { count: sessionCount, error: sessionError } = await ownerClient
     .from("brew_sessions")
     .select("id", { count: "exact", head: true })
     .eq("brew_plan_id", brewPlanId ?? "");
   expect(sessionError).toBeNull();
   expect(sessionCount).toBe(0);
+
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Bloom" })).toBeVisible();
+  await expect(page.getByText("45g", { exact: true })).toBeVisible();
+
+  await expect.poll(async () => {
+    const { count } = await ownerClient
+      .from("brew_sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("brew_plan_id", brewPlanId ?? "");
+    return count;
+  }).toBe(1);
+
+  const { data: startedSession, error: startedSessionError } = await ownerClient
+    .from("brew_sessions")
+    .select("id, brew_plan_id, status")
+    .eq("brew_plan_id", brewPlanId ?? "")
+    .single();
+  expect(startedSessionError).toBeNull();
+  expect(startedSession).toMatchObject({ brew_plan_id: brewPlanId, status: "brewing" });
+
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Second pour" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Second pour" })).toBeVisible();
+  const { count: resumedSessionCount } = await ownerClient
+    .from("brew_sessions")
+    .select("id", { count: "exact", head: true })
+    .eq("brew_plan_id", brewPlanId ?? "");
+  expect(resumedSessionCount).toBe(1);
+
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Final pour" })).toBeVisible();
+  await page.getByRole("button", { name: "Finish Brew" }).click();
+  await expect(page.getByText("Saved on this device", { exact: true })).toBeVisible();
+  await context.setOffline(false);
+
+  await expect(page).toHaveURL(new RegExp(`/brew/${brewPlanId}/session/${startedSession?.id}/feedback$`));
+  await expect(page.getByRole("heading", { name: "Nice work." })).toBeVisible();
+  await expect(page.getByText("Taste feedback comes next")).toBeVisible();
+  await expect(page.getByText("No Taste Feedback or Adjustment has been created.")).toBeVisible();
+
+  const { data: completedSession, error: completedSessionError } = await ownerClient
+    .from("brew_sessions")
+    .select("id, brew_plan_id, status, finished_at, actual_brew_time, actual_coffee_dose, actual_water_amount, actual_water_temperature")
+    .eq("id", startedSession?.id ?? "")
+    .single();
+  expect(completedSessionError).toBeNull();
+  expect(completedSession).toMatchObject({
+    actual_coffee_dose: 15,
+    actual_water_amount: 250,
+    actual_water_temperature: 90,
+    brew_plan_id: brewPlanId,
+    status: "completed",
+  });
+  expect(completedSession?.finished_at).not.toBeNull();
+  expect(completedSession?.actual_brew_time).not.toBeNull();
+
+  const { data: completedSteps, error: completedStepsError } = await ownerClient
+    .from("brew_session_steps")
+    .select("actual_start_time, actual_end_time, actual_water, brew_plan_steps!inner(step_order)")
+    .eq("brew_session_id", startedSession?.id ?? "")
+    .order("step_order", { referencedTable: "brew_plan_steps" });
+  expect(completedStepsError).toBeNull();
+  expect(completedSteps).toHaveLength(3);
+  expect(completedSteps?.map(({ actual_water }) => actual_water)).toEqual([45, 120, 240]);
+  expect(completedSteps?.every(({ actual_end_time, actual_start_time }) => (
+    actual_start_time !== null && actual_end_time !== null && actual_end_time >= actual_start_time
+  ))).toBe(true);
+
+  const { count: feedbackCount } = await ownerClient
+    .from("taste_feedback")
+    .select("id", { count: "exact", head: true })
+    .eq("brew_session_id", startedSession?.id ?? "");
+  const { count: adjustmentCount } = await ownerClient
+    .from("adjustment_suggestions")
+    .select("id", { count: "exact", head: true })
+    .eq("based_on_session_id", startedSession?.id ?? "");
+  expect(feedbackCount).toBe(0);
+  expect(adjustmentCount).toBe(0);
+  expect(await page.evaluate(() => window.localStorage.getItem("dialed.active-brew.v1"))).toBeNull();
+
+  await page.getByRole("link", { name: "Back to Brew Plan" }).click();
+  await expect(page.getByText("This plan is locked to preserve its Brew Session history.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Edit Plan" })).toHaveCount(0);
+  await page.goto(`/brew/${brewPlanId}/edit`);
+  await expect(page).toHaveURL(`/brew/${brewPlanId}`);
 
   const otherClient = authenticatedClient();
   const { error: otherSignInError } = await otherClient.auth.signInWithPassword(otherUser);
@@ -200,10 +288,16 @@ test("creates, explains, snapshots, edits, and isolates a recommended Brew Plan"
     .from("dial_in_threads")
     .select("id")
     .eq("id", planBeforeEdit?.dial_in_thread_id ?? "");
+  const { data: privateSessions, error: privateSessionError } = await otherClient
+    .from("brew_sessions")
+    .select("id")
+    .eq("id", startedSession?.id ?? "");
   expect(privatePlanError).toBeNull();
   expect(privateThreadError).toBeNull();
+  expect(privateSessionError).toBeNull();
   expect(privatePlans).toEqual([]);
   expect(privateThreads).toEqual([]);
+  expect(privateSessions).toEqual([]);
   const { data: mutatedPlans, error: mutatePlanError } = await otherClient
     .from("brew_plans")
     .update({ grind_level: "forbidden" })
@@ -222,5 +316,7 @@ test("creates, explains, snapshots, edits, and isolates a recommended Brew Plan"
   await page.getByRole("button", { name: "Sign out" }).click();
   await signIn(page, otherUser);
   await page.goto(`/brew/${brewPlanId}`);
+  await expect(page.getByRole("heading", { name: "Brew Plan not found" })).toBeVisible();
+  await page.goto(`/brew/${brewPlanId}/session/${startedSession?.id}/feedback`);
   await expect(page.getByRole("heading", { name: "Brew Plan not found" })).toBeVisible();
 });

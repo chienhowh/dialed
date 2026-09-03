@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { BrewPlanEditForm } from "@/components/brew/brew-plan-edit-form";
 import { requireUser } from "@/features/auth/require-user";
@@ -13,6 +13,7 @@ export default async function EditBrewPlanPage({ params }: EditBrewPlanPageProps
   const { supabase, user } = await requireUser();
   const plan = await getBrewPlan(supabase, user.id, brewPlanId);
   if (!plan) notFound();
+  if (plan.hasStartedBrew) redirect(`/brew/${plan.id}`);
   const action = updateBrewPlanAction.bind(null, plan.id);
 
   return (

@@ -8,6 +8,7 @@ import { getCoffee } from "@/features/coffee/repository";
 
 import { parseBrewPlanEditFormData, type BrewPlanEditFormState } from "./edit-form";
 import {
+  BrewPlanAlreadyStartedError,
   BrewPlanNotFoundError,
   createRecommendedBrewPlan,
   getBrewPlan,
@@ -67,6 +68,9 @@ export async function updateBrewPlanAction(
     await updateBrewPlan(supabase, user.id, brewPlanId, parsed.data);
   } catch (error) {
     if (error instanceof BrewPlanNotFoundError) notFound();
+    if (error instanceof BrewPlanAlreadyStartedError) {
+      return { message: "This Brew Plan is locked because brewing has already started." };
+    }
     return { message: "We could not update this Brew Plan. Please try again." };
   }
 

@@ -359,6 +359,8 @@ Recommendation Knowledge
 - Expected Flavor
 - Recommendation Reason
 
+在第一個 Brew Session 開始前，使用者可以編輯這份 Brew Plan。開始後該 Plan 會鎖定，後續執行資料只寫入 Brew Session，不回寫或重解釋原始 Plan。
+
 來源可能為：
 
 - Official Rule

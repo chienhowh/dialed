@@ -441,6 +441,8 @@ note
 
 因此 Brew Plan 是當時 Recipe 的 snapshot。
 
+第一個 Brew Session 建立後，應用層禁止再編輯該 Brew Plan 與 `brew_plan_steps`。Guided Brew 永遠讀取這份 persisted snapshot；Recipe Template 的後續變更不參與 active 或 completed Session 的執行。
+
 ---
 
 # 9. Brew Session

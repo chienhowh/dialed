@@ -80,6 +80,8 @@ Editable parameters may include:
 
 User edits should create the final Brew Plan snapshot used by the Session.
 
+After a Brew Session has started, hide `Edit Plan` and show that the plan is locked to preserve its execution history.
+
 ## Next
 
 `Start Brewing → Guided Brew`

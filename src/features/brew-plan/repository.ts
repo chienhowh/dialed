@@ -123,6 +123,13 @@ export class BrewPlanNotFoundError extends Error {
   }
 }
 
+export class BrewPlanAlreadyStartedError extends Error {
+  constructor() {
+    super("A Brew Plan cannot be edited after a Brew Session has started.");
+    this.name = "BrewPlanAlreadyStartedError";
+  }
+}
+
 function isBrewStepType(value: string): value is BrewStepType {
   return value === "pour" || value === "wait";
 }
@@ -258,7 +265,7 @@ export async function createRecommendedBrewPlan(
   return brewPlanId;
 }
 
-function toBrewPlan(row: BrewPlanQueryRow, coffee: Coffee): BrewPlan {
+function toBrewPlan(row: BrewPlanQueryRow, coffee: Coffee, hasStartedBrew: boolean): BrewPlan {
   const primaryTasteGoal = row.dial_in_threads.primary_taste_goal;
   const secondaryTasteGoal = row.dial_in_threads.secondary_taste_goal;
 
@@ -280,6 +287,7 @@ function toBrewPlan(row: BrewPlanQueryRow, coffee: Coffee): BrewPlan {
     dialInThreadId: row.dial_in_thread_id,
     expectedFlavor: row.expected_flavor,
     grindLevel: row.grind_level,
+    hasStartedBrew,
     id: row.id,
     primaryTasteGoal,
     ratio: row.ratio,
@@ -325,8 +333,17 @@ export async function getBrewPlan(
   if (!data) return null;
 
   const row = data as BrewPlanQueryRow;
-  const coffee = await getCoffee(supabase, userId, row.coffee_id);
-  return coffee ? toBrewPlan(row, coffee) : null;
+  const [coffee, sessionResult] = await Promise.all([
+    getCoffee(supabase, userId, row.coffee_id),
+    supabase
+      .from("brew_sessions")
+      .select("id")
+      .eq("brew_plan_id", brewPlanId)
+      .eq("user_id", userId)
+      .limit(1),
+  ]);
+  if (sessionResult.error) throw new Error("Unable to load Brew Plan history.", { cause: sessionResult.error });
+  return coffee ? toBrewPlan(row, coffee, sessionResult.data.length > 0) : null;
 }
 
 const EDIT_NOTE = "This Brew Plan was manually edited after recommendation.";
@@ -339,6 +356,7 @@ export async function updateBrewPlan(
 ) {
   const current = await getBrewPlan(supabase, userId, brewPlanId);
   if (!current) throw new BrewPlanNotFoundError();
+  if (current.hasStartedBrew) throw new BrewPlanAlreadyStartedError();
 
   const currentStepIds = new Set(current.steps.map(({ id }) => id));
   if (input.steps.length !== currentStepIds.size || input.steps.some(({ id }) => !currentStepIds.has(id))) {

@@ -18,6 +18,7 @@ export type BrewPlan = {
   dialInThreadId: string;
   expectedFlavor: string;
   grindLevel: string;
+  hasStartedBrew: boolean;
   id: string;
   primaryTasteGoal: TasteGoal;
   ratio: number;

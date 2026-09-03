@@ -87,9 +87,13 @@ export function BrewPlanSummary({ plan }: { plan: BrewPlan }) {
         <Link className="flex min-h-12 items-center justify-center rounded-xl bg-[var(--accent)] px-5 font-semibold text-white" href={`/brew/${plan.id}/start`}>
           Start Brewing
         </Link>
-        <Link className="flex min-h-12 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 font-semibold" href={`/brew/${plan.id}/edit`}>
-          Edit Plan
-        </Link>
+        {plan.hasStartedBrew ? (
+          <p className="text-center text-sm text-[var(--muted)]">This plan is locked to preserve its Brew Session history.</p>
+        ) : (
+          <Link className="flex min-h-12 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 font-semibold" href={`/brew/${plan.id}/edit`}>
+            Edit Plan
+          </Link>
+        )}
       </div>
     </section>
   );
