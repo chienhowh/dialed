@@ -540,50 +540,189 @@ MVP 的 Flavor Tags 使用 PostgreSQL `text[]` 儲存在 `taste_feedback.flavor_
 
 暫時不建立獨立 tag table；未來只有在 canonical tags、跨語言 metadata 或更複雜 query 需求出現時才正規化。
 
+Milestone 6 submission 必須至少選擇一項 Quick Feedback。Negative signals 可以 multi-select；`pretty_good` 與 `too_sour`、`too_bitter`、`too_weak`、`too_strong`、`astringent` 全部互斥。`pretty_good` 仍可與 overall rating、sensory ratings、flavor tags 和 notes 同時保存。
+
+Taste Feedback 只能屬於 owned、completed Brew Session，且每個 Session 最多一筆。Submitted feedback 是 historical observation snapshot；MVP repository 使用 conflict-safe insert-and-fetch，不提供 update / delete application path，也不建立 versioning。
+
+Milestone 6 不提供 Actual Brew correction。現有 session dose、water、temperature 與 pour-water values 是由 Brew Plan 初始化的 defaults，不能當作 independently measured deviations 參與 adjustment ranking。
+
 ---
 
-# 11. Adjustment Suggestion
+# 11. Adjustment Decision
 
-## adjustment_suggestions
-
-```text
-id
-user_id
-
-based_on_session_id
-dial_in_thread_id
-
-parameter
-previous_value
-suggested_value
-direction
-
-reason
-status
-
-created_at
-```
-
-`parameter` 例如：
+## Domain boundary
 
 ```text
-grind
-temperature
-ratio
-water
-brew_time
+TasteFeedback
+→ Feedback Interpretation
+→ inferred Adjustment Direction(s)
+→ user selects ONE direction if needed
+→ AdjustmentCandidate choices
+→ Dialed recommends one candidate
+→ user selects ONE candidate
+→ persisted AdjustmentDecision
+→ end Milestone 6
 ```
 
-`status`：
+三個 concepts 不可合併：
+
+- `TasteFeedback` 保存使用者觀察到的 cup result。
+- `AdjustmentDecision` snapshot Dialed 當時的 interpretation、使用者想先改善的方向、recommended candidate 與 selected candidate。
+- `AdjustmentCandidate` 是朝 selected direction 移動的一個具體 brewing-variable change。
+
+`adjustmentDirection` approved values：
+
+```text
+increase_extraction
+decrease_extraction
+increase_strength
+decrease_strength
+reduce_astringency
+hold
+```
+
+`uncertain` 只可以是 interpretation 無法提出可靠 direction 時的 outcome，不是 user-selected Adjustment Direction，也不寫入 inferred direction snapshot。
+
+`candidateChangeDirection` 是另一個 field，例如 `finer`、`higher` 或 `lower`。不可用一個 ambiguous `direction` 同時承載兩種語意。
+
+## Conservative interpretation
+
+目前 approved directional guidance：
+
+```text
+Too Sour    → likely increase_extraction
+Too Bitter  → likely decrease_extraction
+Too Weak    → increase_strength
+Too Strong  → decrease_strength
+Astringent  → reduce_astringency
+Pretty Good → hold
+```
+
+這些是 possible next directions，不是 diagnosis。Multiple negative signals 可以產生 multiple inferred directions；使用者必須回答「What should we improve first?」，選擇 ONE direction。系統不得合併成 multi-parameter adjustment。
+
+`hold` 是 explicit persisted decision，沒有 recommended 或 selected candidate。這使 intentional no-change 與 incomplete adjustment flow 保持不同。
+
+## Milestone 6 database design
+
+既有 internal prototype `adjustment_suggestions` 一筆只能描述一項 concrete parameter change，無法在 recommended 與 selected 不同時保存兩者，也無法保存 inferred directions、selected adjustment direction 或 interpretation version。最小 clean design 是以 `adjustment_decisions` 取代它，不建立 separate candidate rows，也不持久化 unselected alternatives。
+
+### `adjustment_decisions`
+
+```text
+id uuid primary key default gen_random_uuid()
+user_id uuid not null
+taste_feedback_id uuid not null unique
+
+inferred_directions text[] not null
+selected_direction text not null
+interpretation_version text not null
+
+recommended_candidate jsonb
+selected_candidate jsonb
+candidate_knowledge_version text
+
+status text not null
+applied_brew_plan_id uuid null
+created_at timestamptz not null default timezone('utc', now())
+```
+
+Session 與 Dial-in Thread 不在 decision row 重複儲存。它們由 immutable relationship chain 取得：
+
+```text
+adjustment_decisions.taste_feedback_id
+→ taste_feedback.brew_session_id
+→ brew_sessions.brew_plan_id
+→ brew_plans.dial_in_thread_id
+```
+
+這仍保留 Feedback、Session 與 Thread relationship，同時從結構上避免同一 owner 把 Session A 的 decision 錯接到 Thread B。`taste_feedback` 增加 `unique (id, user_id)`，decision 使用 `(taste_feedback_id, user_id)` composite ownership FK。
+
+`adjustment_decisions.user_id` reference `auth.users (id) on delete cascade`；`(taste_feedback_id, user_id)` reference `taste_feedback (id, user_id) on delete cascade`。不新增 direct Session / Thread foreign keys。
+
+`inferred_directions` 至少一項，只允許 approved Adjustment Direction values，並且 `selected_direction = any(inferred_directions)`。Application parser 另外 canonicalize order 並拒絕 duplicate array entries。
+
+`interpretation_version` 是 historical snapshot contract；不可用最新 rules 重算過去呈現給使用者的 directions。
+
+Decision `status`：
 
 ```text
 pending
-accepted
-ignored
-superseded
+applied
+held
+unsupported
 ```
 
-這讓 Suggestion 不會只存在 UI 一瞬間。
+Constraints 保證：
+
+- `selected_direction = 'hold'` → `inferred_directions = array['hold']`、`status = 'held'`，且兩個 candidate columns 與 `candidate_knowledge_version` 都是 null。
+- `status in ('pending', 'applied')` → selected direction 不是 `hold`、inferred directions 不包含 `hold`，且 recommended／selected candidate 與 candidate knowledge version 全部 non-null。
+- `status = 'unsupported'` → selected direction 不是 `hold`、inferred directions 不包含 `hold`，兩個 candidate columns 都是 null，而 candidate knowledge version non-null。
+- `status = 'applied'` iff `applied_brew_plan_id` non-null；其他狀態的 pointer 必須是 null。該欄位以 ownership-safe composite FK 指向同一使用者的 `brew_plans`，並以 unique constraint 保證一個 plan 不會被多個 decision 宣告為套用結果。
+- Milestone 6 只建立 `pending`、`held` 或 `unsupported`；Milestone 7 套用 selected candidate 並原子建立 Next Brew Plan 後，才可同時寫入 `applied_brew_plan_id` 並把 `pending` 改為 `applied`。
+
+`reduce_astringency` 在 Candidate Catalog v1 建立 `unsupported` decision；這表示 interpretation 有有效 direction，但 catalog 尚無 reviewed executable candidate。
+
+### Candidate Catalog v1
+
+| Selected direction | Recommended | Alternative |
+| --- | --- | --- |
+| `increase_extraction` | `grind` / `finer` | `temperature` / `higher` |
+| `decrease_extraction` | `grind` / `coarser` | `temperature` / `lower` |
+| `increase_strength` | `water` / `lower` | — |
+| `decrease_strength` | `water` / `higher` | — |
+| `reduce_astringency` | unsupported | — |
+| `hold` | no candidate | — |
+
+Strength adjustments 固定 coffee dose，以 water amount 作為 primary variable；ratio 是由 dose 與 water 推導的值。M6 不 resolve exact water delta 或 next ratio。
+
+### Candidate snapshot JSONB
+
+`recommended_candidate` 與 `selected_candidate` 使用相同的 typed shape：
+
+```ts
+type AdjustmentCandidateSnapshot = {
+  parameter: "grind" | "temperature" | "water";
+  changeDirection: "finer" | "coarser" | "higher" | "lower";
+  evidenceClassification: "product_heuristic";
+  reason: string;
+};
+```
+
+Database CHECK 驗證 JSONB 是 object、四個且只有四個 required keys、primitive types、non-empty reason、approved parameter / changeDirection allowlists、structurally valid parameter-direction pairs，以及 `product_heuristic` evidence。Direction → candidate eligibility 與 exact magnitude 是 typed domain logic；database 不複製整份 Candidate Catalog。
+
+Candidate Snapshot 保存 intent，不保存 `previousValue`、`suggestedValue` 或 resolved magnitude。Milestone 7 才從 selected intent 與 previous Brew Plan resolve exact value。
+
+JSONB 比 duplicated `recommended_*` / `selected_*` columns 更適合這兩份小型 immutable snapshots，也避免為不需持久化的 alternatives 建立 candidate rows。MVP 仍可使用 `selected_candidate ->> 'parameter'` 查詢；目前不需要 GIN index。
+
+Recommended 與 selected snapshot 即使相同也都保存；若使用者選擇 alternative，兩者自然保留不同內容。
+
+### Constraints, indexes, and RLS
+
+Proposed migration：
+
+1. 在 `taste_feedback` 增加 Quick Feedback required CHECK、Pretty Good exclusivity CHECK，以及 `unique (id, user_id)`。
+2. 將 feedback insert RLS `with check` 擴充為 owned Session 且 `brew_sessions.status = 'completed'`；repository 在 M6.2 同時驗證 completed status。
+3. 建立 `adjustment_decisions`、上述 CHECK constraints、`unique (taste_feedback_id)` 與 composite ownership FK。
+4. 建立 `(user_id, status, created_at desc)` index；Feedback、Session、Thread traversal 使用現有 FK／history indexes。
+5. 對 `adjustment_decisions` 啟用 RLS，依既有 convention 提供 owner-only select / insert / update / delete policies；M6.2 application 不提供 historical snapshot update / delete path。Milestone 7 transition semantics 仍須由 conditional repository update 定義。
+6. Feedback application layer 不提供 update / delete；既有 owner policies 可以暫時保留，product immutability 先由 repository/UI 保證。
+
+Idempotency：Feedback 以 `brew_session_id`、Decision 以 `taste_feedback_id` 作 conflict key，使用 insert-on-conflict-do-nothing 再 fetch。Retry 不更新已存在的 historical snapshots。
+
+Milestone 6 terminal result 的 `Done` 導向 related Coffee Detail。這沿用現有 route 並保留 coffee context，不為 M6 新增 Dial-in history route。
+
+不需要 trigger。Cross-row completed-session 規則由 RLS `exists` 與 repository validation 雙層保護；status transition 由 Milestone 7 conditional update 保護。
+
+### Existing prototype treatment
+
+Repository 目前沒有 `adjustment_suggestions` application writes，seed 也沒有持久資料；database tests 中的 rows 都在 rollback transaction。Migration 執行前仍必須檢查 target environment row count：
+
+- 若為零，直接 drop `adjustment_suggestions` 後建立 `adjustment_decisions`。
+- 若非零，停止 migration 並先匯出／制定 backfill policy；舊 rows 缺少 feedback、inferred directions、recommended-vs-selected 與 rule version，不能無損推導新 decision。
+
+Generated `src/types/database.ts` 必須在 migration 套用後更新：移除 `adjustment_suggestions` type 並加入 `adjustment_decisions` 與 JSON candidate fields。
+
+這是最小 clean model，因為只新增一個 decision table、保留既有 feedback table、不建立 alternatives table，也不引入 workflow engine、event sourcing 或 next-plan infrastructure。
 
 ---
 
@@ -775,7 +914,7 @@ Water Amount 使用 `dose × template default_ratio`，目前三個 official see
 
 # 16. Adjustment Engine
 
-Future conceptual boundary：
+Milestone 6 / 7 boundary：
 
 ```text
 Taste Feedback
@@ -783,7 +922,9 @@ Taste Feedback
 + actual Brew Session
 + Dial-in History
         ↓
-Desired Adjustment Direction
+Inferred Adjustment Direction(s)
+        ↓
+User Direction Selection if needed
         ↓
 Candidate Adjustment Strategies
         ↓
@@ -791,26 +932,29 @@ Ranked Choices
         ↓
 User Selection
         ↓
+Persist pending Adjustment Decision (Milestone 6)
+        ↓
 Next Brew Plan
+        ↓
+Mark Decision applied (Milestone 7)
 ```
 
 原則：
 
 > **標準 Dial-in iteration 一次只改變 ONE 個 primary brewing variable，其他參數在實務可行範圍內維持不變。**
 
-Engine 應先從 feedback 與 actual execution 判斷 desired direction（例如 `increase_extraction`），再產生多個有效 candidate strategies。Dialed 可以排序並推薦其中一個，但 Next Brew Plan 由使用者選擇的 ONE 個 strategy 產生。
+Engine 應先從 feedback 產生 likely direction guidance（例如 `increase_extraction`），必要時讓使用者從 multiple inferred directions 選擇 ONE，再產生多個有效 candidate strategies。Dialed 可以排序並推薦其中一個，但 selected candidate 由使用者決定。Milestone 6 保存 decision；Next Brew Plan 由 Milestone 7 產生。
 
-跨 layer 使用一致術語：`Desired Adjustment Direction` → `Candidate Adjustment Strategies` → `Recommended Adjustment` / `Ranked Choices` → `Selected Adjustment` → `Next Brew Plan`。
+跨 layer 使用一致術語：`Inferred Adjustment Directions` → `Selected Adjustment Direction` → `Candidate Adjustment Strategies` → `Recommended Adjustment` / `Ranked Choices` → `Selected Adjustment` → `Next Brew Plan`。
 
 例如：
 
 ```text
-Desired direction: Increase extraction
+Selected direction: Increase extraction
 
 Candidate strategies:
 1. Grind finer (recommended)
 2. Increase water temperature
-3. Increase agitation / adjust pour structure
 
 User selection: Grind finer
 ```
@@ -827,18 +971,45 @@ New Brew Plan
 
 其他參數維持不變。
 
-Future ranking 可以使用 current parameters 與 previous outcomes 作為 Context，例如：
+Future reviewed ranking 可以使用 current parameters 與 previous outcomes 作為 Context，例如：
 
 - temperature 已高時，降低「再提高 temperature」的 priority。
 - drawdown 已慢時，降低「再磨細」的 priority。
 
-以上是 architectural examples，不是 Milestone 4.1 或 Milestone 5 implementation requirements。
+以上只是 architectural examples，不是 approved Milestone 6 candidate knowledge。Actual-value correction 完成前，由 Brew Plan 初始化的 Session fields 不得當作 measured deviation。
 
 切換 Recipe Template / brewing framework 通常同時改變多個條件，不應表示成標準 one-variable adjustment。Method switching 應建立不同 baseline / Brewing Strategy，再從新 baseline 評估結果。
 
-既有 `adjustment_suggestions` schema 可以持久化目前 recommended / selected suggestion 與 status；候選集合、ranking metadata 與 evidence labels 在 Milestone 4.1 只是 conceptual boundary，不新增 migration。未來實作前需先決定是否需要額外 persistence。
+Milestone 6 只 snapshot recommended 與 selected candidate intent，不持久化其他 alternatives。Candidate Catalog v1 使用 grind finer/coarser、temperature higher/lower，以及固定 dose 下的 water lower/higher；不包含 agitation、pour、brew time、recipe、dose 或 ratio candidates。Exact magnitude 與 context thresholds 屬於 Milestone 7。
 
 Dial-in Thread 現在以 `Coffee + Taste Goal` 定義。Method switch 是否延續同一 Thread 或建立新 Thread 尚未決定；Architecture 不在此 milestone 靜默改變 identity semantics。
+
+## Milestone 7 v1 magnitude resolution
+
+Exact adjustment policy 使用獨立 version `adjustment-magnitude-v1`，不可與 `feedback-interpretation-v1` 或 `candidate-catalog-v1` 混用。Pure typed resolver 只接受 `candidate-catalog-v1` 的 persisted `selected_candidate`；unknown version、unknown candidate 與 expected boundaries 都回傳 typed non-applied outcome，不以 generic exception 表示。
+
+Magnitude rules：
+
+- Grind 使用 ordered catalog `fine → medium-fine → medium → medium-coarse → coarse`，每次只移動一個相鄰 level。DB 欄位維持 text；unmapped text 或 catalog boundary 不可套用。
+- Temperature higher/lower 固定 `+1°C` / `-1°C`，並遵守既有 integer `1–100°C` bounds。
+- Water lower/higher 固定以 stored source ratio `-1.0` / `+1.0`，coffee dose 不變，`newWater = dose × newRatio` round 到 Brew Plan 的兩位小數 precision。Source Plan water/ratio 若已不一致，不修改歷史資料。
+- Water step 使用 `newWater / oldWater` proportional scaling；每個 Pour cumulative target round 到 `0.1g`，final Pour 強制等於 new total。Wait step 與 recipe structure 全部照抄。
+
+Ratio 與 rescaled Pour targets 是 water primary change 的 derived consistency values，不計為第二個 primary variable。
+
+## Next Plan snapshot and atomic apply
+
+Next Plan 必須 clone previous `brew_plans` 與 `brew_plan_steps` snapshot，不查詢 current `recipe_steps` 或重跑 Recommendation Engine。新 Plan 保留 owner、Coffee、Dial-in Thread、Recipe Template reference、dose、target time、expected flavor、reason 與所有 unrelated parameters；設定 `parent_plan_id = source Plan`、`based_on_session_id = completed source Session`，並使用 `previous_brew_adjustment` provenance。Step rows 使用新 IDs。
+
+`adjustment_decisions.applied_brew_plan_id` 是 Decision → generated Plan 的唯一 canonical relationship，使用 `(applied_brew_plan_id, user_id)` ownership-safe FK。Lifecycle invariant：只有 `applied` 可以且必須有 applied Plan；`pending`、`held`、`unsupported` 必須為 null。
+
+Application 先載入 immutable Decision → Feedback → completed Session → source Plan chain，使用 pure resolver 產生 validated payload。PostgreSQL `apply_adjustment_decision` RPC 再從 locked Decision 重新解析同一 source chain、只允許 selected candidate 對應的 mutation shape，並在一個 transaction 內建立 Plan、clone steps、更新 `status = 'applied'` 與 applied Plan ID。
+
+RPC 以 `auth.uid()` 驗證 owner，並對 Decision 使用 row lock。若 Decision 已 applied，直接回傳既有 Plan ID；同一 Decision 的 retry 或 concurrent requests 因此不會建立第二個 Plan。任何 validation 或 write failure 都 rollback，Decision 維持 pending，且不存在 partial Plan／steps。
+
+Authenticated client 只可 select 與 insert initial `pending`／`held`／`unsupported` Decision；不保留 direct update/delete privilege。`pending → applied` 與 `applied_brew_plan_id` 寫入只能經過 atomic `SECURITY DEFINER` RPC，避免 client 繞過 source-chain validation 或把任意 owned Plan 宣告為套用結果。Service role 保留既有受信任的管理權限。
+
+Magnitude version 不另建 DB column：Decision 保存 candidate version與 intent，source／generated Plan snapshots 保存 before/after exact values，足以重建本次結果；RPC contract 仍要求 caller 明確傳入 supported magnitude version。
 
 ---
 
@@ -1030,7 +1201,7 @@ User-owned：
 - brew_plans
 - brew_sessions
 - taste_feedback
-- adjustment_suggestions
+- adjustment_decisions
 
 User-owned child tables 透過 parent ownership policy 保護：
 

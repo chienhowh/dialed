@@ -152,9 +152,9 @@ select is(
 );
 
 select is(
-  (select count(*) from public.adjustment_suggestions where based_on_session_id = 'd6000000-0000-4000-8000-000000000001'),
+  (select count(*) from public.adjustment_decisions),
   0::bigint,
-  'Milestone 5 creates no Adjustment Suggestion'
+  'Milestone 5 creates no Adjustment Decision'
 );
 
 select * from finish();

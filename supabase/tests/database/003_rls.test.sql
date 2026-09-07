@@ -80,35 +80,35 @@ values
   ('a5000000-0000-4000-8000-000000000001', 'a4000000-0000-4000-8000-000000000001', 1, 'pour', 0, 40),
   ('b5000000-0000-4000-8000-000000000001', 'b4000000-0000-4000-8000-000000000001', 1, 'pour', 0, 40);
 
-insert into public.brew_sessions (id, user_id, brew_plan_id, started_at)
+insert into public.brew_sessions (id, user_id, brew_plan_id, started_at, status)
 values
-  ('a6000000-0000-4000-8000-000000000001', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'a4000000-0000-4000-8000-000000000001', now()),
-  ('b6000000-0000-4000-8000-000000000001', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'b4000000-0000-4000-8000-000000000001', now());
+  ('a6000000-0000-4000-8000-000000000001', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'a4000000-0000-4000-8000-000000000001', now(), 'completed'),
+  ('b6000000-0000-4000-8000-000000000001', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'b4000000-0000-4000-8000-000000000001', now(), 'completed');
 
 insert into public.brew_session_steps (id, brew_session_id, brew_plan_step_id, actual_start_time)
 values
   ('a7000000-0000-4000-8000-000000000001', 'a6000000-0000-4000-8000-000000000001', 'a5000000-0000-4000-8000-000000000001', 0),
   ('b7000000-0000-4000-8000-000000000001', 'b6000000-0000-4000-8000-000000000001', 'b5000000-0000-4000-8000-000000000001', 0);
 
-insert into public.taste_feedback (id, user_id, brew_session_id, overall_rating)
+insert into public.taste_feedback (id, user_id, brew_session_id, overall_rating, pretty_good)
 values
-  ('a8000000-0000-4000-8000-000000000001', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'a6000000-0000-4000-8000-000000000001', 4),
-  ('b8000000-0000-4000-8000-000000000001', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'b6000000-0000-4000-8000-000000000001', 3);
+  ('a8000000-0000-4000-8000-000000000001', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'a6000000-0000-4000-8000-000000000001', 4, true),
+  ('b8000000-0000-4000-8000-000000000001', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'b6000000-0000-4000-8000-000000000001', 3, true);
 
-insert into public.adjustment_suggestions (
-  id, user_id, based_on_session_id, dial_in_thread_id,
-  parameter, previous_value, suggested_value, direction, reason
+insert into public.adjustment_decisions (
+  id, user_id, taste_feedback_id, inferred_directions,
+  selected_direction, interpretation_version, status
 )
 values
   (
     'a9000000-0000-4000-8000-000000000001', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    'a6000000-0000-4000-8000-000000000001', 'a3000000-0000-4000-8000-000000000001',
-    'grind', 'medium-fine', 'slightly finer', 'finer', 'Test suggestion A'
+    'a8000000-0000-4000-8000-000000000001', array['hold'],
+    'hold', 'feedback-v1', 'held'
   ),
   (
     'b9000000-0000-4000-8000-000000000001', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-    'b6000000-0000-4000-8000-000000000001', 'b3000000-0000-4000-8000-000000000001',
-    'grind', 'medium-fine', 'slightly finer', 'finer', 'Test suggestion B'
+    'b8000000-0000-4000-8000-000000000001', array['hold'],
+    'hold', 'feedback-v1', 'held'
   );
 
 set local role authenticated;
@@ -124,7 +124,7 @@ select is((select count(*) from public.brew_plan_steps), 1::bigint, 'a user sees
 select is((select count(*) from public.brew_sessions), 1::bigint, 'a user sees only their brew sessions');
 select is((select count(*) from public.brew_session_steps), 1::bigint, 'a user sees only their session steps');
 select is((select count(*) from public.taste_feedback), 1::bigint, 'a user sees only their feedback');
-select is((select count(*) from public.adjustment_suggestions), 1::bigint, 'a user sees only their suggestions');
+select is((select count(*) from public.adjustment_decisions), 1::bigint, 'a user sees only their adjustment decisions');
 select is((select count(*) from public.recipe_templates), 3::bigint, 'authenticated users can read official recipes');
 
 select throws_ok(

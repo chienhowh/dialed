@@ -227,9 +227,8 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
   await context.setOffline(false);
 
   await expect(page).toHaveURL(new RegExp(`/brew/${brewPlanId}/session/${startedSession?.id}/feedback$`));
-  await expect(page.getByRole("heading", { name: "Nice work." })).toBeVisible();
-  await expect(page.getByText("Taste feedback comes next")).toBeVisible();
-  await expect(page.getByText("No Taste Feedback or Adjustment has been created.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "How was it?" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Pretty good" })).toBeVisible();
 
   const { data: completedSession, error: completedSessionError } = await ownerClient
     .from("brew_sessions")
@@ -264,14 +263,13 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
     .select("id", { count: "exact", head: true })
     .eq("brew_session_id", startedSession?.id ?? "");
   const { count: adjustmentCount } = await ownerClient
-    .from("adjustment_suggestions")
-    .select("id", { count: "exact", head: true })
-    .eq("based_on_session_id", startedSession?.id ?? "");
+    .from("adjustment_decisions")
+    .select("id", { count: "exact", head: true });
   expect(feedbackCount).toBe(0);
   expect(adjustmentCount).toBe(0);
   expect(await page.evaluate(() => window.localStorage.getItem("dialed.active-brew.v1"))).toBeNull();
 
-  await page.getByRole("link", { name: "Back to Brew Plan" }).click();
+  await page.getByRole("link", { name: "Back" }).click();
   await expect(page.getByText("This plan is locked to preserve its Brew Session history.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Edit Plan" })).toHaveCount(0);
   await page.goto(`/brew/${brewPlanId}/edit`);

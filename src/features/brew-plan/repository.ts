@@ -8,7 +8,7 @@ import { recommendBrewPlan } from "@/features/recommendation/recommend-brew-plan
 import type { Database } from "@/types/database";
 
 import type { TasteGoalInput } from "./taste-goal-form";
-import type { BrewPlan, BrewPlanEditInput } from "./types";
+import { isRecommendationSource, type BrewPlan, type BrewPlanEditInput } from "./types";
 
 const ACTIVE_RECIPE_SELECT = `
   id,
@@ -277,7 +277,7 @@ function toBrewPlan(row: BrewPlanQueryRow, coffee: Coffee, hasStartedBrew: boole
     throw new Error("Brew plan contains an invalid taste goal.");
   }
 
-  if (row.recommendation_source !== "official_rule" && row.recommendation_source !== "manual") {
+  if (!isRecommendationSource(row.recommendation_source)) {
     throw new Error("Brew plan contains an unsupported recommendation source.");
   }
 

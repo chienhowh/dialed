@@ -84,7 +84,7 @@ Brew Session
         ↓
 Taste Feedback
         ↓
-Adjustment Suggestion
+Adjustment Decision
 ```
 
 ## Continue Dial-in
@@ -96,7 +96,9 @@ Existing Dial-in Thread
     ↓
 Previous Feedback
     ↓
-Desired Adjustment Direction
+Inferred Adjustment Direction(s)
+    ↓
+User Selects ONE Direction
     ↓
 Candidate Adjustment Strategies
     ↓
@@ -299,7 +301,9 @@ Brew #1
 ★★★
 Too Sour
 
-↓ Grind finer
+↓ Likely direction: increase extraction
+↓ Candidate adjustments
+↓ User selected: grind finer
 
 Brew #2
 ★★★★
@@ -400,7 +404,7 @@ Finish        02:20     02:37
 
 系統優先自動記錄時間。
 
-Actual Water、Temperature 等需要額外操作的資訊，可以沖完後再補。
+Actual Water、Temperature 等需要額外操作的資訊，可由 future correction flow 在沖完後補記；Milestone 6 不包含此功能。
 
 ---
 
@@ -410,13 +414,18 @@ Actual Water、Temperature 等需要額外操作的資訊，可以沖完後再�
 
 ### Quick Feedback
 
-- Overall Rating
 - Pretty Good
 - Too Sour
 - Too Bitter
 - Too Weak
 - Too Strong
 - Astringent
+
+Quick Feedback 支援 multi-select；例如 `Too Sour + Too Weak`、`Too Bitter + Astringent` 都有效。Milestone 6 至少需要選擇一項 Quick Feedback，讓每次 submission 都有明確的 hold 或 adjustment interpretation outcome。
+
+`Pretty Good` 與所有 negative Quick Feedback 互斥，但仍可搭配 Overall Rating、Detailed Sensory Feedback、Flavor Tags 與 Notes。
+
+Overall Rating 為 optional 的 1–5 preference rating，並不屬於 Quick Feedback selection。
 
 ### Detailed Sensory Feedback
 
@@ -452,6 +461,90 @@ Optional：
 與：
 
 > **「我喜不喜歡這杯」**
+
+Submitted Taste Feedback 是 completed cup 的 historical observation snapshot。MVP 不提供 submission 後的 edit 或 delete UI，也不建立 feedback versioning / superseding。
+
+---
+
+## 5.10 Adjustment Decision
+
+代表：
+
+> **使用者在下一次 Dial-in iteration 想優先改善什麼，以及最後選擇哪一項 one-variable change。**
+
+必須區分三個 concepts：
+
+- `TasteFeedback`：使用者對 completed cup 的觀察。
+- `AdjustmentDecision`：Dialed 當時提出哪些 likely directions，以及使用者選擇先改善哪個方向。
+- `AdjustmentCandidate`：可以朝 selected direction 移動的一項具體 brewing-variable change。
+
+完整概念流程：
+
+```text
+Completed Brew Session
+→ Taste Feedback
+→ Interpret Feedback
+→ Inferred Adjustment Direction(s)
+→ User selects ONE direction if needed
+→ Candidate Adjustments
+→ Dialed recommends one candidate
+→ User selects ONE candidate
+→ Persist Adjustment Decision
+→ End Milestone 6
+```
+
+Generating the Next Brew Plan 屬於 Milestone 7。
+
+Approved Adjustment Directions：
+
+```text
+increase_extraction
+decrease_extraction
+increase_strength
+decrease_strength
+reduce_astringency
+hold
+```
+
+`uncertain` 可以是 interpretation 無法產生可靠方向時的 outcome，但不是 user-selected Adjustment Direction。
+
+`adjustmentDirection` 與 `candidateChangeDirection` 必須使用不同欄位／術語。例如 `increase_extraction` 是 adjustment direction；`finer` 或 `higher` 是 candidate change direction。
+
+目前的保守 interpretation guidance：
+
+- Too Sour → likely `increase_extraction`
+- Too Bitter → likely `decrease_extraction`
+- Too Weak → `increase_strength`
+- Too Strong → `decrease_strength`
+- Astringent → `reduce_astringency`
+- Pretty Good → `hold`
+
+以上是可能的下一步方向，不是 extraction diagnosis。產品不得宣稱 sour 必然代表 under-extracted、bitter 必然代表 over-extracted、weak／strong 等同 extraction 狀態，或 astringency 只是 over-extraction。
+
+若 multiple Quick Feedback signals 產生多個 valid directions，產品必須詢問：
+
+> **What should we improve first?**
+
+使用者只選一個 direction；系統不得把多個方向合併為同一輪的多參數調整。
+
+`Pretty Good` 產生 explicit persisted hold decision。Hold 沒有 Adjustment Candidate，用來區分「刻意維持不變」與「尚未完成 adjustment flow」。
+
+Candidate Catalog v1：
+
+| Selected direction | Recommended candidate | Alternative candidate | Outcome |
+| --- | --- | --- | --- |
+| `increase_extraction` | `grind` / `finer` | `temperature` / `higher` | candidate selection |
+| `decrease_extraction` | `grind` / `coarser` | `temperature` / `lower` | candidate selection |
+| `increase_strength` | `water` / `lower` | — | candidate selection |
+| `decrease_strength` | `water` / `higher` | — | candidate selection |
+| `reduce_astringency` | — | — | `unsupported` decision |
+| `hold` | — | — | `held` decision |
+
+Strength adjustment 固定 coffee dose，以 water amount 作為 primary variable，ratio 由 dose 與 water 推導；M6 只保存 `water / lower` 或 `water / higher` 的 intent，exact water delta 與新 ratio 由 Milestone 7 resolve。
+
+Candidate Snapshot v1 只保存 `parameter`、`changeDirection`、`evidenceClassification` 與 `reason`，不保存 `previousValue`、`suggestedValue` 或 resolved magnitude。目前 executable candidates 的 evidence classification 都是 `product_heuristic`；`neutral_fallback` 不是 adjustment candidate evidence。
+
+`reduce_astringency` 在 Candidate Catalog v1 尚無 reviewed executable candidate，但 direction 本身仍有效，因此保存 terminal `unsupported` decision。這不同於 `uncertain` interpretation，也不同於 `hold`。
 
 ---
 
@@ -619,7 +712,9 @@ Brew Complete
 Quick Taste Feedback
 ```
 
-Actual Brew Data 與詳細 Sensory Feedback 都可以 Optional 展開。
+詳細 Sensory Feedback 可以 Optional 展開。
+
+Milestone 6 不提供 Actual Brew correction。Milestone 5 的 dose、water、temperature 與 pour-water actual fields 目前由 Brew Plan 初始化，不視為 independently measured deviations。Correction 保留為 future/backlog。
 
 ---
 
@@ -630,13 +725,19 @@ Actual Brew Data 與詳細 Sensory Feedback 都可以 Optional 展開。
 ```text
 Taste Feedback
  ↓
-Desired Adjustment Direction
+Inferred Adjustment Direction(s)
+ ↓
+User chooses ONE direction if needed
  ↓
 Candidate Adjustment Strategies
  ↓
-User chooses ONE
+Dialed recommends one candidate
  ↓
-Next Brew Plan
+User chooses ONE candidate
+ ↓
+Persist Adjustment Decision
+ ↓
+End Milestone 6
 ```
 
 例如：
@@ -652,30 +753,32 @@ Increase extraction
 Candidate strategies:
 - Grind finer
 - Increase water temperature
-- Increase agitation / adjust pour structure
 
 User selection:
 Grind finer
 
-Grind
-Medium-fine
-↓
-Slightly finer
+Selected intent:
+Grind finer
 
-Everything else unchanged
+Adjustment Decision status:
+Pending
 ```
+
+Candidate Catalog v1 只允許 grind、temperature 與 water intent。Agitation、pour structure、brew time、recipe、dose、ratio 與其他 parameters 都不是 executable MVP candidates。這個 milestone 不核准 exact grind amount、temperature delta、water delta、brew-time threshold 或 context-ranking threshold；magnitude resolution 屬於 Milestone 7。
+
+Strength direction 固定 dose：`increase_strength` 使用 lower water，`decrease_strength` 使用 higher water，ratio 是衍生值而不是獨立 candidate parameter。
 
 ---
 
-# 9. Adjustment Suggestion
+# 9. Adjustment Decision
 
-Taste Feedback 的結果不是一次性提示。
+Taste Feedback 不直接轉換為 brewing-variable command。中間必須先產生 likely Adjustment Direction，必要時讓使用者決定優先改善方向，再產生 candidates。
 
-Adjustment Suggestion 必須持續存在於：
+Adjustment Decision 必須持續存在於：
 
 - My Coffee Detail
 - Dial-in Thread
-- Create Next Brew Plan Flow
+- Milestone 7 Create Next Brew Plan Flow
 
 標準 Dial-in adjustment 的核心規則是：
 
@@ -690,7 +793,9 @@ Brew
  ↓
 Taste Feedback
  ↓
-Desired Adjustment Direction
+Inferred Adjustment Direction(s)
+ ↓
+User selects ONE direction if needed
  ↓
 Candidate Adjustment Strategies
  ↓
@@ -698,17 +803,70 @@ Dialed ranks and recommends one
  ↓
 User selects ONE valid strategy
  ↓
-Next Brew Plan
+Persist Adjustment Decision
+ ↓
+End Milestone 6
 ```
 
 Adjustment terminology：
 
-- Desired Adjustment Direction：根據 feedback 判斷下一杯希望移動的方向。
+- Inferred Adjustment Directions：根據 feedback 提出的 likely directions；是 guidance，不是 diagnosis。
+- Selected Adjustment Direction：使用者在這輪選擇優先改善的 ONE direction。
 - Candidate Adjustment Strategies：可以朝該方向移動的有效 one-variable choices。
 - Recommended Adjustment：Dialed 排名最高、預先建議的 candidate。
-- Selected Adjustment：使用者實際選擇、會套用到下一個 Brew Plan 的 candidate。
+- Selected Adjustment：使用者實際選擇、由 Milestone 7 套用到下一個 Brew Plan 的 candidate。
 
-例如希望 Increase extraction 時，Grind finer、Increase water temperature、Increase agitation / adjust pour structure 都可能是候選。Dialed 可以排序並推薦其中一個，但使用者可以選擇另一個有效策略；Next Brew Plan 只能套用選定的那一項 primary-variable change。
+例如希望 Increase extraction 時，Candidate Catalog v1 提供 Grind finer（recommended）與 Increase water temperature（alternative）。Dialed 預選 recommended candidate，但使用者可以選擇另一個 valid candidate；Milestone 7 的 Next Brew Plan 只能套用選定的那一項 primary-variable change。
+
+Historical Adjustment Decision 必須 snapshot：
+
+- 當時呈現的 inferred directions
+- selected direction
+- interpretation / rule version
+- Dialed recommended candidate
+- user-selected candidate
+- candidate evidence / knowledge version
+- lifecycle status
+
+不需要持久化所有未選 alternatives。
+
+Candidate snapshots 保存 change intent，而不是上一個值或下一個 exact value。M7 才根據 selected candidate 與當時 Plan resolve magnitude。
+
+有 executable candidate 的 non-hold decision 在 Milestone 6 結束時為 `pending`；Milestone 7 產生 Next Brew Plan 後轉為 `applied`。Hold decision 使用 terminal `held`，不建立 fake no-op candidate；有效 direction 若尚無 reviewed executable candidate，使用 terminal `unsupported`。
+
+## 9.1 Milestone 7 v1 Adjustment Magnitude
+
+Milestone 7 使用 `adjustment-magnitude-v1` 將 persisted `selected_candidate` intent 解析成 exact Next Brew Plan value；它不重跑 Feedback Interpretation、Candidate ranking 或 starting-point Recommendation Engine。
+
+Canonical qualitative grind scale 依序為：
+
+```text
+fine → medium-fine → medium → medium-coarse → coarse
+```
+
+- `grind / finer` 向 `fine` 移動剛好一個相鄰 level。
+- `grind / coarser` 向 `coarse` 移動剛好一個相鄰 level。
+- 只有 exact canonical value 可以自動調整；任意文字、`fine + finer` 與 `coarse + coarser` 都不可套用。
+- 不推測 grinder clicks、不做 fuzzy matching，也不自動改選 alternative candidate。
+
+Temperature magnitude 固定為：
+
+- `temperature / higher` → `+1°C`
+- `temperature / lower` → `-1°C`
+
+Strength magnitude 固定 coffee dose，使用 source Plan persisted ratio 作 baseline：
+
+- `water / lower` → `ratio - 1.0`
+- `water / higher` → `ratio + 1.0`
+- `new water = coffee dose × new ratio`，並持久化 new ratio 與 new water。
+
+這個規則不把全產品的 ratio 改成 derived field；它只定義 M7 water adjustment。若 source water 與 ratio 已不一致，M7 不回寫或修復 historical source Plan，而是仍以 stored ratio 計算 new ratio、以 stored water 作 cumulative Pour target rescaling baseline。
+
+Water adjustment 將所有 Pour step 的 absolute cumulative `target_water` 乘以 `new water / old water`，各 target 先 round 到 `0.1g`，最後一個 Pour 再強制等於 new total water。Wait step、step order/type、timing、duration、notes 與 Recipe structure 不變。
+
+任何 selected Candidate 若無法產生 distinct、合法的新值，resolution 必須失敗：不建立 Plan、不建立 steps、不 clamp、不切換 Candidate，Decision 保持 `pending`。
+
+成功時從 previous Brew Plan snapshot 建立同一 Dial-in Thread 內的新 Plan，設定 `parent_plan_id` 與 `based_on_session_id`，並使用 `previous_brew_adjustment` recommendation source。Generated Plan 在第一個 Brew Session 前仍可編輯；明確手動編輯沿用既有 `manual` source 行為。
 
 Recipe / method switching 通常同時改變多個沖煮條件，因此不屬於標準 one-variable adjustment。切換 Recipe Template 或 brewing framework 應視為建立不同 baseline / Brewing Strategy，再從該起點繼續學習。
 
@@ -718,7 +876,7 @@ Recipe / method switching 通常同時改變多個沖煮條件，因此不屬於
 
 ### Continue Dial-in
 
-檢視 recommended adjustment 與其他有效候選，選擇 ONE 個 strategy 產生下一個 Brew Plan。
+Milestone 7 讀取 pending decision，使用已選定的 ONE candidate 產生下一個 Brew Plan。
 
 ### Brew Again
 
@@ -742,7 +900,7 @@ MVP：
 6. Brew Plan
 7. Guided Brew
 8. Brew Complete / Feedback
-9. Adjustment Suggestion
+9. Adjustment Decision
 10. Brew History
 
 Bottom Navigation 初期：
@@ -848,7 +1006,7 @@ Juicy + Bright ★★★★
 - Detailed Feedback optional
 - Brew History
 - Brew Again
-- Adjustment Suggestion
+- Adjustment Decision
 - Dial-in Thread
 - V60-only brewing support
 - Email authentication

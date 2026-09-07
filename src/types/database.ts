@@ -34,59 +34,62 @@ export type Database = {
   }
   public: {
     Tables: {
-      adjustment_suggestions: {
+      adjustment_decisions: {
         Row: {
-          based_on_session_id: string
+          applied_brew_plan_id: string | null
+          candidate_knowledge_version: string | null
           created_at: string
-          dial_in_thread_id: string
-          direction: string
           id: string
-          parameter: string
-          previous_value: string
-          reason: string
+          inferred_directions: string[]
+          interpretation_version: string
+          recommended_candidate: Json | null
+          selected_candidate: Json | null
+          selected_direction: string
           status: string
-          suggested_value: string
+          taste_feedback_id: string
           user_id: string
         }
         Insert: {
-          based_on_session_id: string
+          applied_brew_plan_id?: string | null
+          candidate_knowledge_version?: string | null
           created_at?: string
-          dial_in_thread_id: string
-          direction: string
           id?: string
-          parameter: string
-          previous_value: string
-          reason: string
-          status?: string
-          suggested_value: string
+          inferred_directions: string[]
+          interpretation_version: string
+          recommended_candidate?: Json | null
+          selected_candidate?: Json | null
+          selected_direction: string
+          status: string
+          taste_feedback_id: string
           user_id: string
         }
         Update: {
-          based_on_session_id?: string
+          applied_brew_plan_id?: string | null
+          candidate_knowledge_version?: string | null
           created_at?: string
-          dial_in_thread_id?: string
-          direction?: string
           id?: string
-          parameter?: string
-          previous_value?: string
-          reason?: string
+          inferred_directions?: string[]
+          interpretation_version?: string
+          recommended_candidate?: Json | null
+          selected_candidate?: Json | null
+          selected_direction?: string
           status?: string
-          suggested_value?: string
+          taste_feedback_id?: string
           user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "adjustment_suggestions_owned_session_fkey"
-            columns: ["based_on_session_id", "user_id"]
+            foreignKeyName: "adjustment_decisions_owned_applied_plan_fkey"
+            columns: ["applied_brew_plan_id", "user_id"]
             isOneToOne: false
-            referencedRelation: "brew_sessions"
+            referencedRelation: "brew_plans"
             referencedColumns: ["id", "user_id"]
           },
           {
-            foreignKeyName: "adjustment_suggestions_owned_thread_fkey"
-            columns: ["dial_in_thread_id", "user_id"]
+            foreignKeyName: "adjustment_decisions_owned_feedback_fkey"
+            columns: ["taste_feedback_id", "user_id"]
             isOneToOne: false
-            referencedRelation: "dial_in_threads"
+            referencedRelation: "taste_feedback"
             referencedColumns: ["id", "user_id"]
           },
         ]
@@ -648,7 +651,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      apply_adjustment_decision: {
+        Args: {
+          p_adjustment_decision_id: string
+          p_grind_level: string
+          p_magnitude_version: string
+          p_pour_targets: Json
+          p_ratio: number
+          p_water_amount: number
+          p_water_temperature: number
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

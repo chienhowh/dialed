@@ -1,18 +1,42 @@
-# Adjustment Suggestion
+# Adjustment Decision
 
 ## Goal
 
-Turn feedback into a desired direction and valid adjustment choices, then let the user choose ONE primary-variable change for the next Brew Plan.
+Turn feedback into likely direction guidance and valid adjustment choices, then let the user choose ONE direction and ONE primary-variable change.
 
-The suggestion must persist beyond this screen.
+The completed decision must persist beyond this screen. Milestone 6 does not generate the next Brew Plan.
 
-This wireframe describes the future adjustment behavior. Milestone 4.1 does not implement it.
+## Multiple Direction Choice
 
-## Wireframe
+When feedback implies more than one valid direction, insert this step before candidates:
 
 ```text
 ┌─────────────────────────────┐
-│ Next brew                   │
+│ What should we improve      │
+│ first?                      │
+│                             │
+│ You said                    │
+│ Too sour · Too weak         │
+│                             │
+│ ○ Increase extraction      │
+│   One possible next         │
+│   direction for sourness.   │
+│                             │
+│ ○ Increase strength        │
+│   Address the cup feeling   │
+│   too weak.                 │
+│                             │
+│        [ Continue ]         │
+└─────────────────────────────┘
+```
+
+Only one Adjustment Direction may continue into candidate selection. The directions are guidance, not extraction diagnoses.
+
+## Candidate Choice
+
+```text
+┌─────────────────────────────┐
+│ Next adjustment             │
 │                             │
 │ ★★★☆☆                      │
 │                             │
@@ -22,73 +46,115 @@ This wireframe describes the future adjustment behavior. Milestone 4.1 does not 
 │                             │
 │ ─────────────────────────── │
 │                             │
-│ DESIRED DIRECTION           │
+│ SELECTED DIRECTION          │
 │ Increase extraction         │
 │                             │
 │ Choose ONE change           │
 │                             │
 │ ● RECOMMENDED               │
 │   Grind finer               │
-│   Medium-fine → finer       │
 │                             │
 │ ○ Increase temperature      │
-│   92°C → 93°C               │
+│   Raise water temperature   │
 │                             │
-│ ○ Adjust pour structure     │
-│   Increase agitation        │
+│ Milestone 7 will change     │
+│ only your selected          │
+│ variable.                   │
 │                             │
-│ The next plan changes only  │
-│ your selected variable.     │
-│ Keep everything else        │
-│ unchanged.                  │
-│                             │
-│ [ Create next Brew Plan ]   │
-│                             │
-│       Done for today        │
+│    [ Save adjustment ]      │
 └─────────────────────────────┘
 ```
 
-## Actions
+These are intent-only candidates. Exact grind and temperature magnitudes are resolved in Milestone 7, not saved by Milestone 6.
 
-### Create next Brew Plan
+## Candidate Catalog v1
 
-Creates a new Brew Plan:
+| Selected direction | Recommended | Alternative |
+| --- | --- | --- |
+| Increase extraction | Grind finer | Raise water temperature |
+| Decrease extraction | Grind coarser | Lower water temperature |
+| Increase strength | Use less water | — |
+| Decrease strength | Use more water | — |
+| Reduce astringency | Unsupported | — |
+| Hold | No candidate | — |
+
+Strength candidates keep coffee dose fixed and change water; ratio is derived. Exact water delta and resulting ratio belong to Milestone 7. Agitation, pour structure, brew time, recipe, dose, ratio, and other variables are not Candidate Catalog v1 parameters. Candidate evidence is currently `product_heuristic`.
+
+## Saved State
 
 ```text
-Previous Brew Plan
-+
-User-selected ONE-variable Adjustment
-=
-Next Brew Plan
+┌─────────────────────────────┐
+│ Adjustment saved            │
+│                             │
+│ Next adjustment             │
+│ Grind finer                 │
+│                             │
+│ This decision is pending.   │
+│ The next Brew Plan will be  │
+│ created in Milestone 7.     │
+│                             │
+│           [ Done ]          │
+└─────────────────────────────┘
 ```
 
-Dialed ranks and preselects one recommended candidate. The user may select another valid candidate before creating the plan.
+Milestone 6 persists the decision and ends. It does not create a Brew Plan.
 
-### Done for today
+The final `Done` destination is the related Coffee Detail route. It is the smallest existing route that preserves the relevant coffee context; Milestone 6 does not add a separate Dial-in history route.
 
-Returns to Coffee Detail / Home.
+## Pretty Good / Hold
 
-The pending adjustment remains visible in the Dial-in Thread.
+```text
+┌─────────────────────────────┐
+│ Dialed in                   │
+│                             │
+│ Keep this brew unchanged.   │
+│                             │
+│ Your hold decision is       │
+│ saved.                      │
+│                             │
+│           [ Done ]          │
+└─────────────────────────────┘
+```
+
+Hold is an explicit persisted terminal decision. It has no recommended candidate, selected candidate, or fake no-op candidate.
+
+## Unsupported Direction
+
+```text
+┌─────────────────────────────┐
+│ Direction saved             │
+│                             │
+│ Reduce astringency          │
+│                             │
+│ Dialed does not yet have a  │
+│ reviewed one-variable       │
+│ adjustment for this         │
+│ direction.                  │
+│                             │
+│           [ Done ]          │
+└─────────────────────────────┘
+```
+
+`unsupported` preserves a valid selected direction and candidate knowledge version, but has no recommended or selected candidate. It is not `hold` and does not invent an unreviewed action.
 
 ## Context Boundary
 
-The existing persisted suggestion retains:
+The persisted Adjustment Decision retains:
 
-- Based-on Brew Session
-- Feedback reason
-- Parameter to change
-- Previous value
-- Suggested direction/value
-- Status: pending / accepted / ignored / superseded
+- Taste Feedback relationship, and therefore the completed Brew Session and Dial-in Thread relationship
+- Inferred directions presented to the user
+- User-selected Adjustment Direction
+- Interpretation / rule version
+- Dialed recommended candidate snapshot when non-hold
+- User-selected candidate snapshot when non-hold
+- Candidate evidence / knowledge version
+- Status: `pending`, `applied`, terminal `held`, or terminal `unsupported`
 
-The future choice UX also needs access to:
+Unselected alternatives do not require persistent rows in MVP. Recommended and selected snapshots must both persist, including when they differ.
 
-- Desired Adjustment Direction
-- Recommended candidate
-- Alternative valid candidates
-- User-selected candidate
+Candidate-bearing status is `pending` at the end of Milestone 6. Milestone 7 generates the next Brew Plan from the selected candidate and marks the decision `applied`. Candidate Snapshots preserve only parameter, change direction, evidence classification, and reason—not previous values, suggested values, or magnitude.
 
-Whether the candidate set is persisted or deterministically regenerated is intentionally unresolved. Milestone 4.1 does not change the schema.
+`reduce_astringency` ends as `unsupported` in Candidate Catalog v1. `hold` ends as `held`.
 
 ## Method Switching Boundary
 

@@ -25,7 +25,7 @@ export type BrewPlan = {
   recipeName: string | null;
   recipeTemplateId: string | null;
   recommendationReason: string;
-  recommendationSource: "official_rule" | "manual";
+  recommendationSource: RecommendationSource;
   secondaryTasteGoal: TasteGoal | null;
   steps: BrewPlanStep[];
   targetBrewTimeMax: number;
@@ -33,6 +33,21 @@ export type BrewPlan = {
   waterAmount: number;
   waterTemperature: number;
 };
+
+export const RECOMMENDATION_SOURCES = [
+  "official_rule",
+  "manual",
+  "previous_brew_adjustment",
+  "community",
+  "personal_history",
+  "ai",
+] as const;
+
+export type RecommendationSource = (typeof RECOMMENDATION_SOURCES)[number];
+
+export function isRecommendationSource(value: string): value is RecommendationSource {
+  return RECOMMENDATION_SOURCES.some((source) => source === value);
+}
 
 export type BrewPlanEditInput = {
   coffeeDose: number;

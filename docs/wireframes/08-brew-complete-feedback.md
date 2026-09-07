@@ -20,7 +20,7 @@ Detailed data is optional.
 │                             │
 │   ☆   ☆   ☆   ☆   ☆        │
 │                             │
-│ Anything you'd change?      │
+│ What did you notice? *      │
 │                             │
 │ [ Pretty good ]             │
 │                             │
@@ -29,8 +29,6 @@ Detailed data is optional.
 │ [ Astringent ]              │
 │                             │
 │ + Add tasting details       │
-│                             │
-│ + Review actual brew        │
 │                             │
 │          [ Save ]           │
 └─────────────────────────────┘
@@ -65,32 +63,38 @@ Notes
 [                         ]
 ```
 
-## Review Actual Brew
+## Quick Feedback Behavior
 
-```text
-              Plan     Actual
+- At least ONE Quick Feedback selection is required.
+- Negative Quick Feedback is multi-select. `Too Sour + Too Weak` and `Too Bitter + Astringent` are valid.
+- Selecting `Pretty Good` clears and disables every negative Quick Feedback selection.
+- Selecting any negative Quick Feedback clears `Pretty Good`.
+- `Pretty Good` may still be combined with Overall Rating, Detailed Sensory Feedback, Flavor Tags, and Notes.
 
-Bloom         40g      [42g]
-Second        120g     [123g]
-Final         240g     [241g]
-
-Temperature   92°C     [91°C]
-
-Finish        2:20     2:31
-```
+Submitted Taste Feedback is an immutable historical observation snapshot. MVP provides no edit or delete UI after Save.
 
 ## Notes
 
 - Do not require detailed sensory feedback.
 - Overall preference and sensory characteristics are separate concepts.
 - High acidity is not automatically a negative outcome.
+- Do not infer a brewing diagnosis directly from a feedback label.
+- Actual-value correction is future/backlog work and is not shown in Milestone 6.
 
 ## Next
 
-If adjustment is appropriate:
+For one negative direction:
 
-`Save → Desired Adjustment Direction → Adjustment Choices`
+`Save → Selected Adjustment Direction → Adjustment Choices`
 
-If no adjustment is needed:
+For multiple inferred directions:
 
-`Save → Coffee Detail / Home`
+`Save → “What should we improve first?” → User selects ONE direction → Adjustment Choices`
+
+For Pretty Good:
+
+`Save → Persist hold decision → Dialed in → Done`
+
+For Astringent when it is the selected direction:
+
+`Save → Persist unsupported decision → Explain that Candidate Catalog v1 has no reviewed one-variable change → Done`
