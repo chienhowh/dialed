@@ -4,7 +4,7 @@ import { AdjustmentFlow } from "@/components/adjustment/adjustment-flow";
 import { AdjustmentResult } from "@/components/adjustment/adjustment-result";
 import { TasteFeedbackForm } from "@/components/feedback/taste-feedback-form";
 import { QUICK_FEEDBACK_CATALOG } from "@/domain/taste/feedback";
-import { saveAdjustmentDecisionAction } from "@/features/adjustment/actions";
+import { continueDialInAction, saveAdjustmentDecisionAction } from "@/features/adjustment/actions";
 import { interpretTasteFeedback } from "@/features/adjustment/interpret";
 import { getAdjustmentDecisionByFeedback } from "@/features/adjustment/repository";
 import { requireUser } from "@/features/auth/require-user";
@@ -28,7 +28,10 @@ export default async function FeedbackPage({ params }: FeedbackPageProps) {
   const decision = feedback
     ? await getAdjustmentDecisionByFeedback(supabase, user.id, feedback.id)
     : null;
-  if (decision) return <AdjustmentResult coffeeId={context.coffeeId} decision={decision} />;
+  if (decision) {
+    const continueAction = continueDialInAction.bind(null, decision.id);
+    return <AdjustmentResult coffeeId={context.coffeeId} continueAction={continueAction} decision={decision} />;
+  }
 
   const feedbackAction = submitTasteFeedbackAction.bind(null, brewPlanId, sessionId);
   const adjustmentAction = saveAdjustmentDecisionAction.bind(null, brewPlanId, sessionId);

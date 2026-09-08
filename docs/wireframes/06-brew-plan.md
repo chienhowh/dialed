@@ -66,6 +66,10 @@ Recommended starting point — not a guaranteed best recipe.
 
 Recommendation reasons show only rules actually applied. Copy must distinguish conservative product heuristics from stronger method/domain-supported behavior and must not imply that a neutral Bean Profile attribute selected the Recipe.
 
+## Adjusted Plan Review
+
+`Continue Dial-in` redirects to this same screen after the atomic adjustment succeeds. The generated Plan is reviewed here before `Start Brewing`; it is not auto-started. It keeps its Previous Brew Adjustment provenance and remains editable until its first Brew Session. An explicit edit continues to use the existing manual override behavior.
+
 ## Edit Plan
 
 Editable parameters may include:

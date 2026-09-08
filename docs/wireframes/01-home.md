@@ -78,3 +78,6 @@ Home should make both **starting a new brew** and **continuing an existing Dial-
 - Continue Dial-in is a shortcut, not the primary obligation.
 - Do not assume the user wants the same Taste Goal as yesterday.
 - A coffee can appear in both My Coffee and Continue Dial-in.
+- M8.1 shows one primary actionable shortcut per Thread. If more work exists, the card says how many additional items need attention and links to Coffee Detail.
+- Shortcut labels may be `Give Feedback`, `Choose Adjustment`, `Continue Dial-in`, `Review Next Brew`, or `Review Brew Plan`; navigation returns to existing canonical routes and performs no mutation on Home.
+- A DB-only `brewing` Session is not shown as resumable. Resume requires the matching device-local active-brew record and is outside the M8.1 server read model.

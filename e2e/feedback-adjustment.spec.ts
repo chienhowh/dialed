@@ -25,13 +25,17 @@ async function ownerClient() {
   return supabase;
 }
 
-async function createBrewContext(user: TestUser, status: BrewStatus = "completed") {
+async function createBrewContext(
+  user: TestUser,
+  status: BrewStatus = "completed",
+  options: { grindLevel?: string } = {},
+) {
   const admin = client(true);
   const beanProfileId = crypto.randomUUID();
   const coffeeId = crypto.randomUUID();
   const threadId = crypto.randomUUID();
   const brewPlanId = crypto.randomUUID();
-  const planStepId = crypto.randomUUID();
+  const planStepIds = Array.from({ length: 5 }, () => crypto.randomUUID());
   const sessionId = crypto.randomUUID();
 
   const { error: beanError } = await admin.from("bean_profiles").insert({
@@ -61,7 +65,7 @@ async function createBrewContext(user: TestUser, status: BrewStatus = "completed
     coffee_id: coffeeId,
     dial_in_thread_id: threadId,
     expected_flavor: "Sweet and clean",
-    grind_level: "medium-fine",
+    grind_level: options.grindLevel ?? "medium-fine",
     id: brewPlanId,
     ratio: 16,
     recipe_template_id: "10000000-0000-4000-8000-000000000001",
@@ -74,14 +78,55 @@ async function createBrewContext(user: TestUser, status: BrewStatus = "completed
     water_temperature: 92,
   });
   expect(planError).toBeNull();
-  const { error: stepError } = await admin.from("brew_plan_steps").insert({
-    brew_plan_id: brewPlanId,
-    id: planStepId,
-    start_time: 0,
-    step_order: 1,
-    step_type: "pour",
-    target_water: 240,
-  });
+  const { error: stepError } = await admin.from("brew_plan_steps").insert([
+    {
+      brew_plan_id: brewPlanId,
+      duration: 10,
+      id: planStepIds[0],
+      note: "First pour",
+      start_time: 0,
+      step_order: 1,
+      step_type: "pour",
+      target_water: 60,
+    },
+    {
+      brew_plan_id: brewPlanId,
+      duration: 20,
+      id: planStepIds[1],
+      note: "Bloom wait",
+      start_time: 10,
+      step_order: 2,
+      step_type: "wait",
+      target_water: null,
+    },
+    {
+      brew_plan_id: brewPlanId,
+      id: planStepIds[2],
+      note: "Second pour",
+      start_time: 30,
+      step_order: 3,
+      step_type: "pour",
+      target_water: 120,
+    },
+    {
+      brew_plan_id: brewPlanId,
+      id: planStepIds[3],
+      note: "Third pour",
+      start_time: 60,
+      step_order: 4,
+      step_type: "pour",
+      target_water: 180,
+    },
+    {
+      brew_plan_id: brewPlanId,
+      id: planStepIds[4],
+      note: "Final pour",
+      start_time: 90,
+      step_order: 5,
+      step_type: "pour",
+      target_water: 240,
+    },
+  ]);
   expect(stepError).toBeNull();
   const { error: sessionError } = await admin.from("brew_sessions").insert({
     actual_brew_time: status === "completed" ? 151 : null,
@@ -94,7 +139,7 @@ async function createBrewContext(user: TestUser, status: BrewStatus = "completed
   });
   expect(sessionError).toBeNull();
 
-  return { brewPlanId, coffeeId, sessionId, threadId };
+  return { brewPlanId, coffeeId, planStepIds, sessionId, threadId };
 }
 
 function feedbackPath(context: Awaited<ReturnType<typeof createBrewContext>>) {
@@ -144,6 +189,7 @@ test("Pretty Good persists a held Decision and returns to Coffee Detail", async 
   await expect(page.getByRole("heading", { name: "Dialed in" })).toBeVisible();
   await expect(page.getByText("Keep this brew unchanged.")).toBeVisible();
   await expect(page.getByText("Try this next")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue Dial-in" })).toHaveCount(0);
 
   const { data: feedback } = await supabase
     .from("taste_feedback")
@@ -170,7 +216,7 @@ test("Pretty Good persists a held Decision and returns to Coffee Detail", async 
   await expect(page).toHaveURL(`/coffee/${context.coffeeId}`);
 });
 
-test("single supported direction restores saved Feedback and persists the recommendation", async ({ page }) => {
+test("Continue Dial-in applies the selected grind Candidate and restores one persisted result", async ({ page }) => {
   const context = await createBrewContext(owner);
   const supabase = await ownerClient();
   await signIn(page, owner);
@@ -208,6 +254,103 @@ test("single supported direction restores saved Feedback and persists the recomm
     status: "pending",
   });
   await expectOnePlan(supabase, context.threadId);
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Adjustment saved" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue Dial-in" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue Dial-in" }).click();
+  await expect(page).toHaveURL(/\/brew\/[0-9a-f-]+$/);
+  const generatedPlanId = page.url().split("/").at(-1) ?? "";
+  expect(generatedPlanId).not.toBe(context.brewPlanId);
+  await expect(page.getByText("Ratio 1:16 · fine", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Edit Plan" })).toBeVisible();
+
+  const { data: sourcePlan, error: sourcePlanError } = await supabase
+    .from("brew_plans")
+    .select("coffee_id, coffee_dose, dial_in_thread_id, grind_level, ratio, recipe_template_id, recommendation_source, water_amount, water_temperature")
+    .eq("id", context.brewPlanId)
+    .single();
+  expect(sourcePlanError).toBeNull();
+  expect(sourcePlan).toMatchObject({
+    coffee_dose: 15,
+    grind_level: "medium-fine",
+    ratio: 16,
+    recommendation_source: "official_rule",
+    water_amount: 240,
+    water_temperature: 92,
+  });
+
+  const { data: generatedPlan, error: generatedPlanError } = await supabase
+    .from("brew_plans")
+    .select("based_on_session_id, coffee_id, coffee_dose, dial_in_thread_id, grind_level, parent_plan_id, ratio, recipe_template_id, recommendation_source, user_id, water_amount, water_temperature")
+    .eq("id", generatedPlanId)
+    .single();
+  expect(generatedPlanError).toBeNull();
+  expect(generatedPlan).toEqual({
+    based_on_session_id: context.sessionId,
+    coffee_dose: 15,
+    coffee_id: context.coffeeId,
+    dial_in_thread_id: context.threadId,
+    grind_level: "fine",
+    parent_plan_id: context.brewPlanId,
+    ratio: 16,
+    recipe_template_id: sourcePlan?.recipe_template_id,
+    recommendation_source: "previous_brew_adjustment",
+    user_id: owner.id,
+    water_amount: 240,
+    water_temperature: 92,
+  });
+
+  const { data: appliedDecision, error: appliedDecisionError } = await supabase
+    .from("adjustment_decisions")
+    .select("applied_brew_plan_id, id, status")
+    .eq("taste_feedback_id", feedback?.id ?? "")
+    .single();
+  expect(appliedDecisionError).toBeNull();
+  expect(appliedDecision).toMatchObject({ applied_brew_plan_id: generatedPlanId, status: "applied" });
+
+  const { data: sourceSteps } = await supabase
+    .from("brew_plan_steps")
+    .select("duration, id, note, start_time, step_order, step_type, target_water")
+    .eq("brew_plan_id", context.brewPlanId)
+    .order("step_order");
+  const { data: generatedSteps } = await supabase
+    .from("brew_plan_steps")
+    .select("duration, id, note, start_time, step_order, step_type, target_water")
+    .eq("brew_plan_id", generatedPlanId)
+    .order("step_order");
+  const comparableSteps = (steps: typeof sourceSteps) => steps?.map((step) => ({
+    duration: step.duration,
+    note: step.note,
+    start_time: step.start_time,
+    step_order: step.step_order,
+    step_type: step.step_type,
+    target_water: step.target_water,
+  }));
+  expect(comparableSteps(generatedSteps)).toEqual(comparableSteps(sourceSteps));
+  expect(generatedSteps?.every(({ id }) => !context.planStepIds.includes(id))).toBe(true);
+
+  await page.goto(feedbackPath(context));
+  await expect(page.getByRole("heading", { name: "Next brew ready" })).toBeVisible();
+  const viewPlan = page.getByRole("link", { name: "View Brew Plan" });
+  await expect(viewPlan).toHaveAttribute("href", `/brew/${generatedPlanId}`);
+
+  const { data: retryPlanId, error: retryError } = await supabase.rpc("apply_adjustment_decision", {
+    p_adjustment_decision_id: appliedDecision?.id ?? "",
+    p_grind_level: "ignored-on-retry",
+    p_magnitude_version: "ignored-on-retry",
+    p_pour_targets: {},
+    p_ratio: 1,
+    p_water_amount: 1,
+    p_water_temperature: 1,
+  });
+  expect(retryError).toBeNull();
+  expect(retryPlanId).toBe(generatedPlanId);
+  const { count: planCount } = await supabase
+    .from("brew_plans")
+    .select("id", { count: "exact", head: true })
+    .eq("dial_in_thread_id", context.threadId);
+  expect(planCount).toBe(2);
 });
 
 test("multiple signals ask for one direction and show only that catalog", async ({ page }) => {
@@ -262,6 +405,109 @@ test("an alternative Candidate preserves Dialed's different recommendation", asy
     recommended_candidate: { changeDirection: "finer", parameter: "grind" },
     selected_candidate: { changeDirection: "higher", parameter: "temperature" },
   });
+
+  await page.getByRole("button", { name: "Continue Dial-in" }).click();
+  await expect(page).toHaveURL(/\/brew\/[0-9a-f-]+$/);
+  const generatedPlanId = page.url().split("/").at(-1) ?? "";
+  const { data: generatedPlan, error: generatedPlanError } = await supabase
+    .from("brew_plans")
+    .select("grind_level, recommendation_source, water_temperature")
+    .eq("id", generatedPlanId)
+    .single();
+  expect(generatedPlanError).toBeNull();
+  expect(generatedPlan).toEqual({
+    grind_level: "medium-fine",
+    recommendation_source: "previous_brew_adjustment",
+    water_temperature: 93,
+  });
+});
+
+test("Continue Dial-in applies a fixed-dose water adjustment and rescales Pour targets", async ({ page }) => {
+  const context = await createBrewContext(owner);
+  const supabase = await ownerClient();
+  await signIn(page, owner);
+  await page.goto(feedbackPath(context));
+
+  await page.getByText("Too weak", { exact: true }).click();
+  await page.getByRole("button", { name: "Save feedback" }).click();
+  await expect(page.getByText("Use less water", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Save adjustment" }).click();
+  await page.getByRole("button", { name: "Continue Dial-in" }).click();
+  await expect(page).toHaveURL(/\/brew\/[0-9a-f-]+$/);
+  const generatedPlanId = page.url().split("/").at(-1) ?? "";
+
+  const { data: generatedPlan, error: generatedPlanError } = await supabase
+    .from("brew_plans")
+    .select("coffee_dose, expected_flavor, grind_level, ratio, recipe_template_id, target_brew_time_max, target_brew_time_min, water_amount, water_temperature")
+    .eq("id", generatedPlanId)
+    .single();
+  expect(generatedPlanError).toBeNull();
+  expect(generatedPlan).toEqual({
+    coffee_dose: 15,
+    expected_flavor: "Sweet and clean",
+    grind_level: "medium-fine",
+    ratio: 15,
+    recipe_template_id: "10000000-0000-4000-8000-000000000001",
+    target_brew_time_max: 160,
+    target_brew_time_min: 135,
+    water_amount: 225,
+    water_temperature: 92,
+  });
+
+  const { data: steps, error: stepsError } = await supabase
+    .from("brew_plan_steps")
+    .select("duration, note, start_time, step_order, step_type, target_water")
+    .eq("brew_plan_id", generatedPlanId)
+    .order("step_order");
+  expect(stepsError).toBeNull();
+  expect(steps).toEqual([
+    { duration: 10, note: "First pour", start_time: 0, step_order: 1, step_type: "pour", target_water: 56.3 },
+    { duration: 20, note: "Bloom wait", start_time: 10, step_order: 2, step_type: "wait", target_water: null },
+    { duration: null, note: "Second pour", start_time: 30, step_order: 3, step_type: "pour", target_water: 112.5 },
+    { duration: null, note: "Third pour", start_time: 60, step_order: 4, step_type: "pour", target_water: 168.8 },
+    { duration: null, note: "Final pour", start_time: 90, step_order: 5, step_type: "pour", target_water: 225 },
+  ]);
+
+  const { data: sourcePlan } = await supabase
+    .from("brew_plans")
+    .select("coffee_dose, ratio, water_amount")
+    .eq("id", context.brewPlanId)
+    .single();
+  expect(sourcePlan).toEqual({ coffee_dose: 15, ratio: 16, water_amount: 240 });
+});
+
+test("a grind boundary stays pending and shows a friendly non-applied result", async ({ page }) => {
+  const context = await createBrewContext(owner, "completed", { grindLevel: "fine" });
+  const supabase = await ownerClient();
+  await signIn(page, owner);
+  await page.goto(feedbackPath(context));
+
+  await page.getByText("Too sour", { exact: true }).click();
+  await page.getByRole("button", { name: "Save feedback" }).click();
+  await page.getByRole("button", { name: "Save adjustment" }).click();
+  await page.getByRole("button", { name: "Continue Dial-in" }).click();
+
+  await expect(page).toHaveURL(feedbackPath(context));
+  await expect(page.getByText("This adjustment is already at Dialed’s supported limit.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue Dial-in" })).toBeDisabled();
+  await expect(page.getByText("Increase water temperature", { exact: true })).toHaveCount(0);
+
+  const { data: feedback } = await supabase
+    .from("taste_feedback")
+    .select("id")
+    .eq("brew_session_id", context.sessionId)
+    .single();
+  const { data: decision } = await supabase
+    .from("adjustment_decisions")
+    .select("applied_brew_plan_id, status")
+    .eq("taste_feedback_id", feedback?.id ?? "")
+    .single();
+  expect(decision).toEqual({ applied_brew_plan_id: null, status: "pending" });
+  const { count: planCount } = await supabase
+    .from("brew_plans")
+    .select("id", { count: "exact", head: true })
+    .eq("dial_in_thread_id", context.threadId);
+  expect(planCount).toBe(1);
 });
 
 test("Astringent persists an unsupported result without guessing a Candidate", async ({ page }) => {
@@ -275,6 +521,7 @@ test("Astringent persists an unsupported result without guessing a Candidate", a
   await expect(page.getByRole("heading", { name: "Direction saved" })).toBeVisible();
   await expect(page.getByText(/does not yet have a reviewed one-variable adjustment/)).toBeVisible();
   await expect(page.getByText("Grind coarser")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue Dial-in" })).toHaveCount(0);
 
   const { data: feedback } = await supabase.from("taste_feedback").select("id").eq("brew_session_id", context.sessionId).single();
   const { data: decision } = await supabase

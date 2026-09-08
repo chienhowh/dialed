@@ -89,17 +89,35 @@ Strength candidates keep coffee dose fixed and change water; ratio is derived. E
 │ Next adjustment             │
 │ Grind finer                 │
 │                             │
-│ This decision is pending.   │
-│ The next Brew Plan will be  │
-│ created in Milestone 7.     │
+│ Only this primary variable  │
+│ will change.                │
 │                             │
+│    [ Continue Dial-in ]     │
 │           [ Done ]          │
 └─────────────────────────────┘
 ```
 
-Milestone 6 persists the decision and ends. It does not create a Brew Plan.
+Milestone 6 persists the decision. Milestone 7 applies it only after the user chooses `Continue Dial-in`, then redirects to the normal generated Brew Plan review screen before brewing starts.
 
-The final `Done` destination is the related Coffee Detail route. It is the smallest existing route that preserves the relevant coffee context; Milestone 6 does not add a separate Dial-in history route.
+`Done` retains the related Coffee Detail destination. This flow does not add a separate adjustment or history route.
+
+During apply, the primary action reads `Preparing next brew…` and is disabled. Expected boundary failures remain on this screen with friendly copy; no Plan is created and the Decision remains pending.
+
+## Applied State
+
+```text
+┌─────────────────────────────┐
+│ Next brew ready             │
+│                             │
+│ Your adjusted Brew Plan     │
+│ has already been created.   │
+│                             │
+│      [ View Brew Plan ]     │
+│           [ Done ]          │
+└─────────────────────────────┘
+```
+
+Refresh or revisit uses persisted `applied_brew_plan_id`. It does not resolve again or create another Plan.
 
 ## Pretty Good / Hold
 

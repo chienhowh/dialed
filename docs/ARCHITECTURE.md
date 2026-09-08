@@ -1011,6 +1011,38 @@ Authenticated client 只可 select 與 insert initial `pending`／`held`／`unsu
 
 Magnitude version 不另建 DB column：Decision 保存 candidate version與 intent，source／generated Plan snapshots 保存 before/after exact values，足以重建本次結果；RPC contract 仍要求 caller 明確傳入 supported magnitude version。
 
+## Milestone 7 Continue Dial-in application flow
+
+Feedback route 依序載入 completed Session、Taste Feedback 與 persisted Adjustment Decision，並直接依 Decision status render；既有 Decision 不重新執行 interpretation 或 candidate selection。`pending` 且具有 selected candidate 時顯示 Continue，`applied` 使用 persisted `applied_brew_plan_id`，`held`／`unsupported` 維持 terminal state。
+
+Client form 只提交 bound `decisionId`，使用 local action pending state 防止同一畫面重複送出。Server action 將 input 視為 untrusted、驗證 identifier，呼叫 authenticated `applyAdjustmentDecision`，成功後 redirect 至 `/brew/{generatedPlanId}`。Stale pending render 若已由另一 request 套用，底層 idempotent RPC 回傳同一 Plan，action 仍視為成功。
+
+Typed magnitude failure 在 application presentation layer 轉為 user-facing copy並留在原頁；resolver 與 repository 不包含 UI strings。Permanent current-state failure 停用 immediate retry，unexpected infrastructure failure 顯示 generic retryable error。Non-owner／missing Decision 沿用 not-found boundary。
+
+## Milestone 8.1 Dial-in Thread read model and recovery
+
+`features/dial-in-history` 提供 owner-scoped read model。Repository 先載入 Threads，再以 ID sets bulk load Coffees、Plans、Sessions、Feedback 與 Decisions；query 數量不隨 Thread 或 attempt 數量線性增加。Raw database rows 先轉成 typed source records，再由 pure assembly layer 建立 Thread summaries、Brew attempts 與 actionable items，React 不自行推導 relationship state。
+
+一個 Brew attempt 對應一個 Brew Session，同一 Plan 的多個 Sessions 保持為不同 attempts。Applied Decision 以 `applied_brew_plan_id` 連到 generated Plan；`based_on_session_id` 保留產生該 Plan 的 attempt causality。Presentation 可以依時間排序，但不得把 branching Thread 宣告成單一 Plan chain。
+
+Actionable items 依 persisted facts 推導：無 Session 的 Plan 是 `ready_to_brew`；completed Session 無 Feedback 是 `needs_feedback`；Feedback 無 Decision 是 `needs_adjustment_decision`；pending Decision 是 `pending_adjustment`；applied Decision 指向且尚無 Session 的 Plan 是 `next_plan_ready`。同一 Thread 保留所有 items。Recovery presentation priority 是 needs feedback、needs adjustment decision、pending adjustment、next Plan ready、ready to brew；相同 priority 再依 action activity time 與 stable ID 排序。這是 UX priority，不是 domain causality。
+
+Latest completed attempt 依 `finished_at desc`、`started_at desc`、`id desc` 判定；Plan creation 依 `created_at desc`、`id desc`。Thread activity 從 child timestamps 推導，不使用 `dial_in_threads.updated_at`。`dial_in_threads.status` 也不驅動主要 recovery UI；held／unsupported／aborted 只產生 presentation terminal summary，不觸發 Thread mutation。
+
+DB `brewing` Session 本身不足以證明可恢復。Guided Brew progress 仍以現有 device-local active-brew record 為準；M8.1 server read model 只可顯示 non-actionable `Brew in progress` summary，不產生 Resume CTA。M8.1 不新增 migration、view、RPC、index、Thread route、lifecycle field 或 `current_plan_id`。
+
+## Milestone 8.2 History presentation model
+
+M8.2 延伸相同 `features/dial-in-history` aggregate，不建立第二套 History repository。Repository 仍先 owner-scope Threads，再用 ID sets bulk-load related Coffees、Plans、Sessions、Feedback 與 Decisions；所有 referenced Recipe Template IDs 另以單一集合 query 載入 display names，query count 不會隨 Plan 數量線性增加。Template ID 不存在、因 RLS 不可見或 label query 無法完成時只使用 `Brew Plan` fallback，不影響 persisted Plan snapshot 的呈現。
+
+`HistoryCoffeeGroup`、`HistoryThread` 與 `HistoryAttempt` 由 pure presentation builder 產生。Coffee/Thread 依 derived activity descending；Thread 內 Session 依 `started_at ascending, session id ascending` 編號為 presentation-only `Brew #N`。相鄰 attempts 若使用同一 Plan 可以加註 same-plan，但 chronology 不建立 lineage；Decision → applied Plan 必須同時符合 persisted `applied_brew_plan_id` 與 generated Plan 的 `based_on_session_id`，因此 branching attempt 不會錯接。
+
+History Plan parameters 只讀 `brew_plans` snapshot。Recipe Template query 僅將目前可存取的 `name` 當 identity label，不用 template defaults 或 `recipe_steps` 重建 dose、water、ratio、temperature、grind、target time、pour structure 或 timing，也不宣稱它是 brew-time template version。Current schema 對 anon/authenticated 只有 public Recipe Template SELECT policy，沒有 client insert/update policy；即使如此，historical behavior correctness 仍依賴 Brew Plan／Brew Plan Steps snapshots。
+
+History recovery navigation 直接使用 M8.1 derived actionable items。`Brew Again` 是 presentation-only link 到 source `/brew/{planId}`；既有 Guided Brew start flow 以新 UUID 建立新 Session，重用同一 Plan 與 Thread。History route 不執行 mutation。Unstarted Plans 保持獨立 plan cards；DB-only brewing attempt 無 Resume CTA；applied manual Plan 只顯示 final persisted parameters 與 manual-edit provenance，不重建 pre-edit values。
+
+M8.2 不新增 migration、view、RPC、index、sequence、Thread lifecycle field、dedicated Thread route、branch tree、Best Brews 或 analytics。
+
 ---
 
 # 17. Brew Timer Architecture

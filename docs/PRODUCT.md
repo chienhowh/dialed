@@ -287,7 +287,9 @@ Brewing Strategy 可以使用特定 Recipe 真正支援的 controls，但不得�
 
 代表：
 
-> **針對同一包 Coffee + 一組 Taste Goal，持續逐杯調整的一連串實驗。**
+> **針對同一包 Coffee + 一組 Taste Goal，持續逐杯調整的一組實驗。**
+
+一個 Brew attempt 對應一個 Brew Session。同一 Plan 可以產生多個 attempts；一個 Thread 也可能因不同 Session 的 adjustment 產生多個 Plan branches。因此 Thread 是可依時間閱讀的實驗群組，不是資料庫強制的單一路徑，也不存在唯一 authoritative current Plan。
 
 例如：
 
@@ -866,7 +868,11 @@ Water adjustment 將所有 Pour step 的 absolute cumulative `target_water` 乘�
 
 任何 selected Candidate 若無法產生 distinct、合法的新值，resolution 必須失敗：不建立 Plan、不建立 steps、不 clamp、不切換 Candidate，Decision 保持 `pending`。
 
-成功時從 previous Brew Plan snapshot 建立同一 Dial-in Thread 內的新 Plan，設定 `parent_plan_id` 與 `based_on_session_id`，並使用 `previous_brew_adjustment` recommendation source。Generated Plan 在第一個 Brew Session 前仍可編輯；明確手動編輯沿用既有 `manual` source 行為。
+成功時從 previous Brew Plan snapshot 建立同一 Dial-in Thread 內的新 Plan，設定 `parent_plan_id` 與 `based_on_session_id`，並使用 `previous_brew_adjustment` recommendation source。Generated Plan 在第一個 Brew Session 前仍可編輯；明確手動編輯沿用既有 `manual` source 行為。若使用者在第一杯前編輯，MVP history 保存 selected adjustment intent 與最終 persisted Plan，不另存或重建 edit 前的 exact generated values。
+
+Feedback terminal page 是 Milestone 7 的入口。Persisted pending Decision 顯示 primary `Continue Dial-in` 與既有 `Done`；Continue 套用 selected candidate 後導向 generated Brew Plan review，不自動開始 Brew Session。Applied Decision 再次載入時顯示 `View Brew Plan`，並使用 `applied_brew_plan_id` 導向同一個既有 Plan，不重新 resolve 或建立另一個 Plan。Held 與 unsupported Decision 不顯示 Continue。
+
+Expected magnitude boundary／compatibility failure 留在 terminal page，以 friendly explanation 呈現，Decision 保持 pending。Unexpected server failure 可重試；UI pending state 會停用重複送出，而 correctness 仍由 atomic RPC idempotency 保證。
 
 Recipe / method switching 通常同時改變多個沖煮條件，因此不屬於標準 one-variable adjustment。切換 Recipe Template 或 brewing framework 應視為建立不同 baseline / Brewing Strategy，再從該起點繼續學習。
 
@@ -880,7 +886,21 @@ Milestone 7 讀取 pending decision，使用已選定的 ONE candidate 產生下
 
 ### Brew Again
 
-完全照上一杯。
+完全照上一杯：重用同一份 immutable Brew Plan，建立新的 Brew Session。Brew Again 不複製一份相同 Plan。
+
+## Milestone 8 Brew History
+
+History 的主要結構是 `Coffee → Dial-in Thread → Brew attempts`，其中一個 Brew attempt 就是一個 Brew Session。Thread 內 attempts 依 `started_at` oldest-to-newest 呈現，`Brew #N` 只是在該 Thread 內即時計算的閱讀順序，不持久化，也不代表 parent-child lineage。同一 immutable Plan 被重複沖煮時，每個 Session 都是獨立 attempt，可標示 `Same plan as previous brew`，但各自的 Feedback 與 Decision 不得合併。
+
+Coffee 與 Thread 依 child records 推導出的 latest activity newest-first 排序，不使用 `dial_in_threads.updated_at` 或 `dial_in_threads.status` 宣告 UX current state。沒有 Session 的初始 Plan 或 adjustment Plan 以獨立的 `Brew Plan ready`／`Next brew ready` 顯示，不建立假的 attempt。
+
+每個 attempt 顯示 persisted Brew Plan snapshot 的 dose、water、ratio、temperature、grind 與 target time；歷史 recipe 行為與 steps 也只能來自 Plan snapshot，不可用目前 Recipe Template 重建。`brew_plans.recipe_template_id` 可以 bulk-load 目前可存取的 template name 作為 identity label，但這不是 brew-time name/version snapshot；無法解析時回退為 `Brew Plan`。目前 official Recipe Templates 對一般 client 沒有 insert/update policy，但 History correctness 仍不依賴 template immutability。
+
+Session 只呈現真正 persisted 的 actual duration 等 measured data，不把 Guided Brew 初始化的 dose、water 或 temperature 稱為 actual。Feedback 顯示 quick feedback、optional rating、sensory、flavor tags 與 notes。Adjustment history 顯示 recommended candidate、selected candidate、Decision status 與 causal applied Plan link，不揭露 raw JSON、knowledge version 或 evidence classification。
+
+若 applied Plan 後來被手動編輯而 `recommendation_source = manual`，History 顯示 `Adjusted plan was edited before brewing`；產品只保證 selected adjustment intent 與最終 persisted Plan，不推測 edit 前 generated exact values。Branching 仍以 `applied_brew_plan_id` 與 `based_on_session_id` 綁回正確 source Session，時間軸不暗示 fake linear chain。
+
+History 沿用既有 recovery actions：Give Feedback、Choose Adjustment、Continue Dial-in、Review Next Brew 與 Review Brew Plan。DB-only `brewing` 只顯示 `Brew in progress`，不推測可 Resume；aborted attempt 顯示 `Stopped` 且不提供 Feedback。Completed、held、unsupported 與適當的 aborted attempt 可使用 `Brew Again` 回到同一 `/brew/{planId}` review，再由既有 Start Brewing flow 為同一 Plan 建立新的 Session；History 本身不 mutation、不 clone Plan、不建立 Thread，也不重跑 Recommendation。
 
 ### Try Another Direction
 
@@ -954,6 +974,8 @@ Grind slightly finer
 
 Continue Dial-in 是快速入口，但不強迫使用者延續昨天的 Taste Goal。
 
+Home 保持 Coffee-first，只為每個有待處理工作的 Thread 顯示一個 compact recovery shortcut。若同一 Thread 還有其他 actionable items，Home 必須指出尚有其他工作並導向 Coffee Detail；不在 Home 複製完整 Thread history。
+
 ---
 
 # 12. My Coffee Detail
@@ -987,6 +1009,8 @@ Best Brews
 Sweet + Clean ★★★★★
 Juicy + Bright ★★★★
 ```
+
+Coffee Detail 是單一 Coffee 的 canonical recovery hub。`Current Dial-ins` 由 Plan、Session、Feedback 與 Decision 的 persisted facts 推導，可同時呈現多個 actionable items，並以既有 Brew Plan／Feedback routes 恢復流程；卡片本身不直接套用 adjustment。Thread 的 `status` 與 `updated_at` 不作為 current action truth。
 
 ---
 

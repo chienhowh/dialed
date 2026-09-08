@@ -6,10 +6,12 @@ import {
   getProcessLabel,
   getRoastLevelLabel,
 } from "@/domain/coffee/bean-profile";
+import { DialInThreadCard } from "@/components/dial-in/dial-in-thread-card";
 import { requireUser } from "@/features/auth/require-user";
 import { archiveCoffeeAction } from "@/features/coffee/actions";
 import { getBeanProfileSummary, getCoffeeDisplayName, getOriginSummary } from "@/features/coffee/coffee-display";
 import { getCoffee } from "@/features/coffee/repository";
+import { listDialInThreadSummariesForCoffee } from "@/features/dial-in-history/repository";
 
 type CoffeeDetailPageProps = { params: Promise<{ coffeeId: string }> };
 
@@ -27,7 +29,10 @@ function DetailRow({ label, value }: { label: string; value: string | null }) {
 export default async function CoffeeDetailPage({ params }: CoffeeDetailPageProps) {
   const { coffeeId } = await params;
   const { supabase, user } = await requireUser();
-  const coffee = await getCoffee(supabase, user.id, coffeeId);
+  const [coffee, dialInThreads] = await Promise.all([
+    getCoffee(supabase, user.id, coffeeId),
+    listDialInThreadSummariesForCoffee(supabase, user.id, coffeeId),
+  ]);
 
   if (!coffee) notFound();
 
@@ -55,6 +60,22 @@ export default async function CoffeeDetailPage({ params }: CoffeeDetailPageProps
           Brew This Coffee
         </Link>
       ) : null}
+
+      <section aria-labelledby="current-dial-ins-heading" className="mt-10 border-t border-[var(--border)] pt-8">
+        <div className="flex items-center justify-between gap-4">
+          <h2 id="current-dial-ins-heading" className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">
+            Current Dial-ins
+          </h2>
+          <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--accent)]" href={`/history?coffee=${coffee.id}`}>Brew History →</Link>
+        </div>
+        {dialInThreads.length > 0 ? (
+          <div className="mt-4 space-y-4">
+            {dialInThreads.map((thread) => <DialInThreadCard key={thread.threadId} thread={thread} />)}
+          </div>
+        ) : (
+          <p className="mt-4 text-sm leading-6 text-[var(--muted)]">No dial-ins yet.</p>
+        )}
+      </section>
 
       <section aria-labelledby="bean-profile-heading" className="mt-10 border-t border-[var(--border)] pt-8">
         <h2 id="bean-profile-heading" className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Bean Profile</h2>

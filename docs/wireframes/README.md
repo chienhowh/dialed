@@ -64,4 +64,6 @@ Adding a coffee does **not** immediately ask for a Taste Goal.
 
 ### Brew Again
 
-`Coffee Detail / History → Previous Brew → Brew Again → New Brew Plan → Guided Brew`
+`History → Previous Brew → Brew Again → Same Brew Plan Review → New Brew Session → Guided Brew`
+
+Brew Again 重用同一份 immutable Brew Plan；不 clone Plan、不建立新 Dial-in Thread，也不重跑 Recommendation。

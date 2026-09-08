@@ -20,6 +20,13 @@ export type ApplyAdjustmentDecisionResult =
   | { brewPlanId: string; status: "applied" }
   | { reason: AdjustmentResolutionFailure; status: "not_applied" };
 
+export class AdjustmentDecisionNotFoundError extends Error {
+  constructor() {
+    super("Adjustment Decision is unavailable.");
+    this.name = "AdjustmentDecisionNotFoundError";
+  }
+}
+
 function toSourcePlan(source: Awaited<ReturnType<typeof getAdjustmentApplicationSource>>["plan"]): AdjustmentSourcePlan {
   return {
     coffeeDose: source.coffeeDose,
@@ -50,7 +57,7 @@ function toSourcePlan(source: Awaited<ReturnType<typeof getAdjustmentApplication
 export async function applyAdjustmentDecision(decisionId: string): Promise<ApplyAdjustmentDecisionResult> {
   const { supabase, user } = await requireUser();
   const decision = await getAdjustmentDecision(supabase, user.id, decisionId);
-  if (!decision) throw new AdjustmentPersistenceError("Adjustment Decision is unavailable.");
+  if (!decision) throw new AdjustmentDecisionNotFoundError();
 
   if (decision.status === "applied") {
     if (!decision.appliedBrewPlanId) {

@@ -1,12 +1,19 @@
 import Link from "next/link";
 
 import { CoffeeCard } from "@/components/coffee/coffee-card";
+import { HomeDialInShortcutCard } from "@/components/dial-in/home-dial-in-shortcut";
 import { requireUser } from "@/features/auth/require-user";
 import { listCoffees } from "@/features/coffee/repository";
+import { getHomeDialInShortcuts } from "@/features/dial-in-history/model";
+import { listDialInThreadSummaries } from "@/features/dial-in-history/repository";
 
 export default async function HomePage() {
   const { supabase, user } = await requireUser();
-  const coffees = await listCoffees(supabase, user.id, "active");
+  const [coffees, dialInThreads] = await Promise.all([
+    listCoffees(supabase, user.id, "active"),
+    listDialInThreadSummaries(supabase, user.id),
+  ]);
+  const recoveryShortcuts = getHomeDialInShortcuts(dialInThreads);
 
   return (
     <section aria-labelledby="home-heading" className="mx-auto max-w-lg">
@@ -36,6 +43,19 @@ export default async function HomePage() {
           </Link>
         </div>
       )}
+
+      {recoveryShortcuts.length > 0 ? (
+        <section aria-labelledby="continue-dial-in-heading" className="mt-10 border-t border-[var(--border)] pt-8">
+          <h2 id="continue-dial-in-heading" className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">
+            Continue Dial-in
+          </h2>
+          <div className="mt-4 space-y-4">
+            {recoveryShortcuts.map((shortcut) => (
+              <HomeDialInShortcutCard key={shortcut.threadId} shortcut={shortcut} />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </section>
   );
 }

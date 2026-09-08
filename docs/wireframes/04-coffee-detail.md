@@ -68,9 +68,12 @@ Continues a specific Dial-in Thread:
 
 ### Brew Again
 
-Copies a previous Brew Plan into a new Brew Plan and starts a new Brew Session.
+Reuses the same immutable Brew Plan and starts a new Brew Session. It does not clone an identical Plan. The Brew Again UI belongs to M8.2.
 
 ## Notes
 
 - One coffee may have multiple Dial-in Threads because Taste Goal can change by mood/day.
 - Do not collapse all Dial-ins into one "current recipe".
+- In M8.1, `Current Dial-ins` is the canonical per-Coffee recovery surface. Each compact Thread card shows Taste Goal, completed attempt count, latest completed brew/Feedback when available, and navigation to the existing canonical recovery route.
+- A Thread can expose more than one actionable item. The primary item follows recovery priority; an inline expansion keeps every additional item reachable without adding a Thread route.
+- M8.2 makes `Brew History` link to `/history?coffee={coffeeId}`. Full attempts and Brew Again live in History; Coffee Detail keeps compact recovery cards and does not add Best Brews or branch visualization.
