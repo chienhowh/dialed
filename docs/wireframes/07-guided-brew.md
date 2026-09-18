@@ -34,12 +34,14 @@ The user may be holding a kettle, so controls must be large and simple.
 │            00:23            │
 │                             │
 │            BLOOM            │
+│        STEP 1 OF 3 · POUR    │
 │                             │
-│          Pour to            │
+│        TARGET WATER         │
 │                             │
 │             40g             │
 │                             │
-│       Next at 00:40         │
+│           UP NEXT           │
+│    00:40 · Pour to 120g     │
 │                             │
 │                             │
 │      ┌───────────────┐      │
@@ -60,14 +62,19 @@ FINAL POUR
 Pour to
 240g
 
-[ FINISH ]
+[ FINISH BREW ]
 ```
 
 ## Behavior
 
 - Timer uses timestamps, not tick counters.
-- Tapping `NEXT` records actual transition time.
-- Current session state should survive accidental reload/backgrounding.
+- Total Timer is session-level elapsed time derived from the original Session `started_at`.
+- Tapping `NEXT` advances one local presentation step only. It does not create a Session, sync a step, or record an actual transition time.
+- Step advancement is manual; the timer does not automatically advance the UI.
+- Pour targets are cumulative Plan targets, not measured actual water.
+- Current Plan, Session identity, original start time, and presentation step survive accidental reload/backgrounding.
+- The final step replaces `NEXT` with `Finish Brew`; completion updates the same Session and routes to its exact Taste Feedback page.
+- One Brew Plan execution equals one Brew Session. Refresh and step navigation do not create additional Sessions.
 - Actual water should not be required during the brew.
 - Optional vibration / notification can be considered if reliable in the PWA environment.
 

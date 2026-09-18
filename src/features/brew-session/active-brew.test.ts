@@ -46,29 +46,26 @@ function memoryStorage() {
 }
 
 describe("active Brew Session state", () => {
-  it("executes persisted Pour and Wait steps in sequence and captures transitions", () => {
+  it("moves through persisted steps without creating actual step telemetry", () => {
     const started = createActiveBrewRecord(plan, sessionId, startedAt);
-    const waiting = advanceActiveBrew(started, startedAt + 10_900);
-    const pouring = advanceActiveBrew(waiting, startedAt + 41_200);
+    const waiting = advanceActiveBrew(started);
+    const pouring = advanceActiveBrew(waiting);
     const completed = completeActiveBrew(pouring, startedAt + 150_800);
 
     expect(completed.currentStepIndex).toBe(2);
-    expect(completed.recordedStepTimes).toEqual([
-      { actualEndTime: 10, actualStartTime: 0, brewPlanStepId: plan.steps[0].id },
-      { actualEndTime: 41, actualStartTime: 10, brewPlanStepId: plan.steps[1].id },
-      { actualEndTime: 150, actualStartTime: 41, brewPlanStepId: plan.steps[2].id },
-    ]);
     expect(completed.status).toBe("completed_pending_sync");
-    expect(toBrewSessionSyncInput(completed)).toMatchObject({
+    const syncInput = toBrewSessionSyncInput(completed);
+    expect(syncInput).toMatchObject({
       brewPlanId: plan.brewPlanId,
       sessionId,
       status: "completed",
     });
+    expect("steps" in syncInput).toBe(false);
   });
 
   it("restores the same stable session and timestamp after a refresh", () => {
     const storage = memoryStorage();
-    const active = advanceActiveBrew(createActiveBrewRecord(plan, sessionId, startedAt), startedAt + 12_000);
+    const active = advanceActiveBrew(createActiveBrewRecord(plan, sessionId, startedAt));
     saveActiveBrew(storage, active);
 
     const restored = readActiveBrew(storage);
@@ -82,8 +79,7 @@ describe("active Brew Session state", () => {
   it("keeps completion idempotent and clears only the matching local execution", () => {
     const storage = memoryStorage();
     const finalStep = advanceActiveBrew(
-      advanceActiveBrew(createActiveBrewRecord(plan, sessionId, startedAt), startedAt + 10_000),
-      startedAt + 40_000,
+      advanceActiveBrew(createActiveBrewRecord(plan, sessionId, startedAt)),
     );
     const completed = completeActiveBrew(finalStep, startedAt + 150_000);
     saveActiveBrew(storage, completed);
@@ -97,6 +93,17 @@ describe("active Brew Session state", () => {
 
   it("rejects inconsistent local records instead of resuming corrupt state", () => {
     const active = createActiveBrewRecord(plan, sessionId, startedAt);
-    expect(parseActiveBrewRecord(JSON.stringify({ ...active, currentStepIndex: 2 }))).toBeNull();
+    expect(parseActiveBrewRecord(JSON.stringify({ ...active, currentStepIndex: 3 }))).toBeNull();
+  });
+
+  it("recovers a legacy v1 record while discarding unmeasured step values", () => {
+    const active = createActiveBrewRecord(plan, sessionId, startedAt);
+    const legacy = {
+      ...active,
+      recordedStepTimes: [{ actualEndTime: null, actualStartTime: 0, brewPlanStepId: plan.steps[0].id }],
+      version: 1,
+    };
+
+    expect(parseActiveBrewRecord(JSON.stringify(legacy))).toEqual(active);
   });
 });

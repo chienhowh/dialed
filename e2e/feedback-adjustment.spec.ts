@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
 
+import { createTasteFeedback } from "../src/features/feedback/repository";
 import type { Database } from "../src/types/database";
 import { createTestUser, deleteTestUser, signIn, type TestUser } from "./support/test-user";
 
@@ -172,11 +173,32 @@ test.afterAll(async () => {
   await Promise.all([deleteTestUser(owner), deleteTestUser(otherUser)]);
 });
 
-test("Pretty Good persists a held Decision and returns to Coffee Detail", async ({ page }) => {
+test("Brew Complete preserves optional sensory details and persists a held Decision", async ({ page }) => {
   const context = await createBrewContext(owner);
   const supabase = await ownerClient();
   await signIn(page, owner);
   await page.goto(feedbackPath(context));
+
+  await expect(page.getByText("Brew Complete", { exact: true })).toBeVisible();
+  await expect(page.getByRole("form", { name: "Quick taste feedback" })).toBeVisible();
+  const sensoryDetails = page.locator("details").filter({ hasText: "Add sensory details" });
+  await expect(sensoryDetails).not.toHaveAttribute("open", "");
+  await expect(page.getByLabel("Sweetness")).not.toBeVisible();
+
+  await sensoryDetails.getByText("Add sensory details", { exact: true }).click();
+  await page.getByLabel("Sweetness").selectOption("4");
+  await page.getByLabel("Acidity").selectOption("3");
+  await page.getByText("Floral", { exact: true }).click();
+  await page.getByLabel("Other flavor tags").fill("Jasmine, Peach");
+  await page.getByLabel("Notes").fill("Clean finish");
+  await sensoryDetails.getByText("Add sensory details", { exact: true }).click();
+  await expect(page.getByLabel("Sweetness")).not.toBeVisible();
+  await sensoryDetails.getByText("Add sensory details", { exact: true }).click();
+  await expect(page.getByLabel("Sweetness")).toHaveValue("4");
+  await expect(page.getByLabel("Acidity")).toHaveValue("3");
+  await expect(page.getByRole("checkbox", { name: "Floral" })).toBeChecked();
+  await expect(page.getByLabel("Other flavor tags")).toHaveValue("Jasmine, Peach");
+  await expect(page.getByLabel("Notes")).toHaveValue("Clean finish");
 
   await page.getByText("Too sour", { exact: true }).click();
   await page.getByText("Pretty good", { exact: true }).click();
@@ -193,9 +215,16 @@ test("Pretty Good persists a held Decision and returns to Coffee Detail", async 
 
   const { data: feedback } = await supabase
     .from("taste_feedback")
-    .select("id")
+    .select("acidity, brew_session_id, flavor_tags, id, notes, sweetness")
     .eq("brew_session_id", context.sessionId)
     .single();
+  expect(feedback).toMatchObject({
+    acidity: 3,
+    brew_session_id: context.sessionId,
+    flavor_tags: ["Floral", "Jasmine", "Peach"],
+    notes: "Clean finish",
+    sweetness: 4,
+  });
   const { data: decision } = await supabase
     .from("adjustment_decisions")
     .select("status, selected_direction, recommended_candidate, selected_candidate, candidate_knowledge_version")
@@ -222,6 +251,8 @@ test("Continue Dial-in applies the selected grind Candidate and restores one per
   await signIn(page, owner);
   await page.goto(feedbackPath(context));
 
+  const sensoryDetails = page.locator("details").filter({ hasText: "Add sensory details" });
+  await expect(sensoryDetails).not.toHaveAttribute("open", "");
   await page.getByText("Too sour", { exact: true }).click();
   await page.getByRole("button", { name: "Save feedback" }).click();
   await expect(page.getByText("Try this next")).toBeVisible();
@@ -236,6 +267,33 @@ test("Continue Dial-in applies the selected grind Candidate and restores one per
     .select("id", { count: "exact", head: true })
     .eq("brew_session_id", context.sessionId);
   expect(feedbackCount).toBe(1);
+  const { data: persistedFeedback } = await supabase
+    .from("taste_feedback")
+    .select("id, pretty_good, too_sour")
+    .eq("brew_session_id", context.sessionId)
+    .single();
+  const retryFeedback = await createTasteFeedback(supabase, owner.id, context.sessionId, {
+    acidity: null,
+    astringent: false,
+    body: null,
+    clarity: null,
+    complexity: null,
+    flavorTags: [],
+    juiciness: null,
+    notes: null,
+    overallRating: null,
+    pretty_good: true,
+    sweetness: null,
+    too_bitter: false,
+    too_sour: false,
+    too_strong: false,
+    too_weak: false,
+  });
+  expect(retryFeedback).toMatchObject({
+    id: persistedFeedback?.id,
+    pretty_good: false,
+    too_sour: true,
+  });
 
   await page.getByRole("button", { name: "Save adjustment" }).click();
   await expect(page.getByRole("heading", { name: "Adjustment saved" })).toBeVisible();
@@ -540,6 +598,7 @@ test("Astringent persists an unsupported result without guessing a Candidate", a
 
 test("ownership and Brew Session lifecycle guard direct Feedback access", async ({ page }) => {
   const completed = await createBrewContext(owner, "completed");
+  const mismatched = await createBrewContext(owner, "completed");
   const brewing = await createBrewContext(owner, "brewing");
   const aborted = await createBrewContext(owner, "aborted");
 
@@ -551,6 +610,8 @@ test("ownership and Brew Session lifecycle guard direct Feedback access", async 
   await page.goto(feedbackPath(brewing));
   await expect(page).toHaveURL(`/brew/${brewing.brewPlanId}/start`);
   await page.goto(feedbackPath(aborted));
+  await expect(page.getByRole("heading", { name: "Brew Plan not found" })).toBeVisible();
+  await page.goto(`/brew/${completed.brewPlanId}/session/${mismatched.sessionId}/feedback`);
   await expect(page.getByRole("heading", { name: "Brew Plan not found" })).toBeVisible();
   await page.goto(feedbackPath(completed));
   await expect(page.getByRole("heading", { name: "How was it?" })).toBeVisible();

@@ -46,7 +46,7 @@ export function TasteFeedbackForm({ action, cancelHref }: TasteFeedbackFormProps
   }
 
   return (
-    <form action={formAction} className="mt-8 text-left">
+    <form action={formAction} aria-label="Quick taste feedback" className="mt-8 text-left">
       {state.message ? (
         <p className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
           {state.message}
@@ -84,7 +84,7 @@ export function TasteFeedbackForm({ action, cancelHref }: TasteFeedbackFormProps
       </div>
 
       <details className="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <summary className="cursor-pointer font-semibold">Add tasting details</summary>
+        <summary className="cursor-pointer font-semibold">Add sensory details</summary>
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
           {SENSORY_RATING_CATALOG.map(({ label, value }) => (
             <div key={value}>

@@ -4,6 +4,7 @@ import { GuidedBrew } from "@/components/brew/guided-brew";
 import { requireUser } from "@/features/auth/require-user";
 import { getBrewPlan } from "@/features/brew-plan/repository";
 import { createGuidedBrewPlanSnapshot } from "@/features/brew-session/plan";
+import { InvalidGuidedBrewPlanError } from "@/features/brew-session/presentation";
 
 type StartBrewPageProps = { params: Promise<{ brewPlanId: string }> };
 
@@ -13,5 +14,12 @@ export default async function StartBrewPage({ params }: StartBrewPageProps) {
   const plan = await getBrewPlan(supabase, user.id, brewPlanId);
   if (!plan) notFound();
 
-  return <GuidedBrew plan={createGuidedBrewPlanSnapshot(plan)} />;
+  let snapshot;
+  try {
+    snapshot = createGuidedBrewPlanSnapshot(plan);
+  } catch (error) {
+    if (error instanceof InvalidGuidedBrewPlanError) notFound();
+    throw error;
+  }
+  return <GuidedBrew plan={snapshot} />;
 }

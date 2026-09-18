@@ -1,57 +1,45 @@
-import { getElapsedSeconds } from "./timer";
+import { isGuidedBrewPlanSnapshot } from "./presentation";
 import type {
   ActiveBrewRecord,
   BrewSessionSyncInput,
   GuidedBrewPlanSnapshot,
   LocalBrewStatus,
-  RecordedStepTime,
 } from "./types";
 
 export const ACTIVE_BREW_STORAGE_KEY = "dialed.active-brew.v1";
 
 type StorageAdapter = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 
-function closeCurrentStep(record: ActiveBrewRecord, elapsed: number) {
-  return record.recordedStepTimes.map((step, index) => (
-    index === record.currentStepIndex ? { ...step, actualEndTime: elapsed } : step
-  ));
-}
-
 export function createActiveBrewRecord(
   plan: GuidedBrewPlanSnapshot,
   sessionId: string,
   now: number,
 ): ActiveBrewRecord {
-  const firstStep = plan.steps[0];
-  if (!firstStep) throw new Error("A Guided Brew requires at least one Brew Plan step.");
+  if (!isGuidedBrewPlanSnapshot(plan)) {
+    throw new Error("A Guided Brew requires a valid Brew Plan step snapshot.");
+  }
 
   return {
     currentStepIndex: 0,
     finishedAt: null,
     plan,
-    recordedStepTimes: [{ actualEndTime: null, actualStartTime: 0, brewPlanStepId: firstStep.id }],
     sessionId,
     startedAt: new Date(now).toISOString(),
     status: "active",
-    version: 1,
+    version: 2,
   };
 }
 
-export function advanceActiveBrew(record: ActiveBrewRecord, now: number): ActiveBrewRecord {
+export function advanceActiveBrew(record: ActiveBrewRecord): ActiveBrewRecord {
   if (record.status !== "active") return record;
 
   const nextStepIndex = record.currentStepIndex + 1;
   const nextStep = record.plan.steps[nextStepIndex];
   if (!nextStep) throw new Error("The final Brew Plan step must be completed, not advanced.");
 
-  const elapsed = getElapsedSeconds(record.startedAt, now);
   return {
     ...record,
     currentStepIndex: nextStepIndex,
-    recordedStepTimes: [
-      ...closeCurrentStep(record, elapsed),
-      { actualEndTime: null, actualStartTime: elapsed, brewPlanStepId: nextStep.id },
-    ],
   };
 }
 
@@ -66,7 +54,6 @@ function finishActiveBrew(
   return {
     ...record,
     finishedAt,
-    recordedStepTimes: closeCurrentStep(record, getElapsedSeconds(record.startedAt, now)),
     status,
   };
 }
@@ -95,45 +82,24 @@ export function toBrewSessionSyncInput(record: ActiveBrewRecord): BrewSessionSyn
     sessionId: record.sessionId,
     startedAt: record.startedAt,
     status,
-    steps: record.recordedStepTimes,
   };
 }
 
-function isRecordedStepTime(value: unknown): value is RecordedStepTime {
+type LegacyRecordedStepTime = {
+  actualEndTime: number | null;
+  actualStartTime: number;
+  brewPlanStepId: string;
+};
+
+function isLegacyRecordedStepTime(value: unknown): value is LegacyRecordedStepTime {
   if (!value || typeof value !== "object") return false;
-  const step = value as Partial<RecordedStepTime>;
+  const step = value as Partial<LegacyRecordedStepTime>;
   return typeof step.brewPlanStepId === "string"
     && Number.isInteger(step.actualStartTime)
     && (step.actualStartTime ?? -1) >= 0
-    && (step.actualEndTime === null || Number.isInteger(step.actualEndTime));
-}
-
-function isGuidedBrewPlan(value: unknown): value is GuidedBrewPlanSnapshot {
-  if (!value || typeof value !== "object") return false;
-  const plan = value as Partial<GuidedBrewPlanSnapshot>;
-  return typeof plan.brewPlanId === "string"
-    && Number.isFinite(plan.coffeeDose)
-    && typeof plan.coffeeName === "string"
-    && typeof plan.grindLevel === "string"
-    && Number.isFinite(plan.ratio)
-    && typeof plan.recipeName === "string"
-    && Number.isInteger(plan.targetBrewTimeMax)
-    && Number.isInteger(plan.targetBrewTimeMin)
-    && typeof plan.tasteGoal === "string"
-    && Number.isFinite(plan.waterAmount)
-    && Number.isFinite(plan.waterTemperature)
-    && Array.isArray(plan.steps)
-    && plan.steps.length > 0
-    && plan.steps.every((step) => (
-      Boolean(step)
-      && typeof step === "object"
-      && typeof step.id === "string"
-      && Number.isInteger(step.stepOrder)
-      && Number.isInteger(step.startTime)
-      && (step.duration === null || Number.isInteger(step.duration))
-      && (step.targetWater === null || Number.isFinite(step.targetWater))
-      && (step.note === null || typeof step.note === "string")
-      && (step.stepType === "pour" || step.stepType === "wait")
+    && (step.actualEndTime === null || (
+      Number.isInteger(step.actualEndTime)
+      && (step.actualEndTime ?? -1) >= (step.actualStartTime ?? 0)
     ));
 }
 
@@ -141,37 +107,55 @@ export function parseActiveBrewRecord(serialized: string | null): ActiveBrewReco
   if (!serialized) return null;
 
   try {
-    const value = JSON.parse(serialized) as Partial<ActiveBrewRecord>;
+    const value = JSON.parse(serialized) as Partial<Omit<ActiveBrewRecord, "version">> & {
+      recordedStepTimes?: unknown;
+      version?: unknown;
+    };
     if (
-      value.version !== 1
+      (value.version !== 1 && value.version !== 2)
       || typeof value.sessionId !== "string"
       || typeof value.startedAt !== "string"
       || (value.finishedAt !== null && typeof value.finishedAt !== "string")
+      || typeof value.currentStepIndex !== "number"
       || !Number.isInteger(value.currentStepIndex)
       || !["active", "completed_pending_sync", "aborted_pending_sync"].includes(value.status ?? "")
-      || !isGuidedBrewPlan(value.plan)
-      || !Array.isArray(value.recordedStepTimes)
-      || !value.recordedStepTimes.every(isRecordedStepTime)
+      || !isGuidedBrewPlanSnapshot(value.plan)
     ) {
       return null;
     }
 
-    const record = value as ActiveBrewRecord;
+    const plan = value.plan;
+    const currentStepIndex = value.currentStepIndex;
+    const status = value.status as LocalBrewStatus;
     if (
-      !Number.isFinite(Date.parse(record.startedAt))
-      || (record.finishedAt !== null && !Number.isFinite(Date.parse(record.finishedAt)))
-      || record.currentStepIndex < 0
-      || record.currentStepIndex >= record.plan.steps.length
-      || record.recordedStepTimes.length !== record.currentStepIndex + 1
-      || record.recordedStepTimes.some((step, index) => (
-        step.brewPlanStepId !== record.plan.steps[index]?.id
-        || (step.actualEndTime !== null && step.actualEndTime < step.actualStartTime)
-      ))
+      !Number.isFinite(Date.parse(value.startedAt))
+      || (value.finishedAt !== null && !Number.isFinite(Date.parse(value.finishedAt)))
+      || currentStepIndex < 0
+      || currentStepIndex >= plan.steps.length
+      || (status === "active") !== (value.finishedAt === null)
     ) {
       return null;
     }
 
-    return record;
+    if (value.version === 1) {
+      const recordedStepTimes = value.recordedStepTimes;
+      if (
+        !Array.isArray(recordedStepTimes)
+        || recordedStepTimes.length !== currentStepIndex + 1
+        || !recordedStepTimes.every(isLegacyRecordedStepTime)
+        || recordedStepTimes.some((step, index) => step.brewPlanStepId !== plan.steps[index]?.id)
+      ) return null;
+    }
+
+    return {
+      currentStepIndex,
+      finishedAt: value.finishedAt,
+      plan,
+      sessionId: value.sessionId,
+      startedAt: value.startedAt,
+      status,
+      version: 2,
+    };
   } catch {
     return null;
   }

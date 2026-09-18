@@ -47,6 +47,31 @@ describe("parseFeedbackFormData", () => {
     });
   });
 
+  it("accepts Quick Feedback without any detailed sensory fields", () => {
+    expect(parseFeedbackFormData(makeFormData([
+      ["quickFeedback", "too_sour"],
+    ]))).toEqual({
+      data: {
+        acidity: null,
+        astringent: false,
+        body: null,
+        clarity: null,
+        complexity: null,
+        flavorTags: [],
+        juiciness: null,
+        notes: null,
+        overallRating: null,
+        pretty_good: false,
+        sweetness: null,
+        too_bitter: false,
+        too_sour: true,
+        too_strong: false,
+        too_weak: false,
+      },
+      success: true,
+    });
+  });
+
   it("rejects Pretty Good combined with a negative signal", () => {
     expect(parseFeedbackFormData(makeFormData([
       ["quickFeedback", "pretty_good"],

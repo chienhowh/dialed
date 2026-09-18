@@ -16,6 +16,7 @@ import {
   toBrewSessionSyncInput,
 } from "@/features/brew-session/active-brew";
 import { syncBrewSessionAction } from "@/features/brew-session/actions";
+import { getGuidedBrewStepPresentation } from "@/features/brew-session/presentation";
 import { getElapsedSeconds } from "@/features/brew-session/timer";
 import type { ActiveBrewRecord, GuidedBrewPlanSnapshot } from "@/features/brew-session/types";
 
@@ -41,6 +42,7 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const syncingTerminalRef = useRef<string | null>(null);
+  const finishRequestedRef = useRef(false);
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const syncRecord = useCallback(async (nextRecord: ActiveBrewRecord) => {
@@ -148,14 +150,23 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
 
   function advance() {
     if (!record) return;
-    const nextRecord = advanceActiveBrew(record, Date.now());
-    if (store(nextRecord)) queueSync(nextRecord);
+    store(advanceActiveBrew(record));
   }
 
   function finish() {
-    if (!record) return;
-    const nextRecord = completeActiveBrew(record, Date.now());
-    if (store(nextRecord)) queueSync(nextRecord);
+    if (!record || finishRequestedRef.current) return;
+    finishRequestedRef.current = true;
+    try {
+      const nextRecord = completeActiveBrew(record, Date.now());
+      if (store(nextRecord)) {
+        queueSync(nextRecord);
+      } else {
+        finishRequestedRef.current = false;
+      }
+    } catch {
+      finishRequestedRef.current = false;
+      setStorageMessage("This brew could not be finished safely. Reload and try again.");
+    }
   }
 
   function abort() {
@@ -256,10 +267,8 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
     );
   }
 
-  const currentStep = record.plan.steps[record.currentStepIndex];
   const elapsed = getElapsedSeconds(record.startedAt, now);
-  const isLastStep = record.currentStepIndex === record.plan.steps.length - 1;
-  const nextStep = record.plan.steps[record.currentStepIndex + 1];
+  const step = getGuidedBrewStepPresentation(record.plan, record.currentStepIndex);
 
   return (
     <section className="fixed inset-0 z-50 overflow-y-auto bg-[var(--background)]">
@@ -270,23 +279,19 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
 
         <div className="flex flex-1 flex-col px-5 py-7 text-center">
           <div aria-live="off">
-            <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Elapsed</p>
+            <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Total Timer</p>
             <time className="mt-1 block font-mono text-6xl font-semibold tracking-tight tabular-nums" dateTime={`PT${elapsed}S`}>{formatSeconds(elapsed)}</time>
           </div>
 
           <div className="mt-7 rounded-3xl border border-[var(--border)] bg-[var(--surface)] px-5 py-8 shadow-sm">
-            <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Step {record.currentStepIndex + 1} of {record.plan.steps.length}</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">{currentStep.note ?? (currentStep.stepType === "pour" ? "Pour" : "Wait")}</h1>
-            {currentStep.stepType === "pour" && currentStep.targetWater !== null ? (
-              <p className="mt-5 text-lg text-[var(--muted)]">Pour to <strong className="block text-5xl text-[var(--accent)]">{formatAmount(currentStep.targetWater)}g</strong></p>
-            ) : (
-              <p className="mt-5 text-2xl font-semibold text-[var(--accent)]">{currentStep.duration === null ? "Wait" : `Wait ${formatSeconds(currentStep.duration)}`}</p>
-            )}
-            {!isLastStep && nextStep ? (
-              <p className="mt-6 text-sm text-[var(--muted)]">Next at about {formatSeconds(nextStep.startTime)} · {nextStep.note ?? (nextStep.stepType === "pour" ? "Pour" : "Wait")}</p>
-            ) : (
-              <p className="mt-6 text-sm text-[var(--muted)]">Finish when the brew has drawn down.</p>
-            )}
+            <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Step {step.stepNumber} of {step.totalStepCount} · {step.stepTypeLabel}</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight">{step.instruction}</h1>
+            <p className="mt-6 text-sm font-semibold tracking-wide text-[var(--muted)] uppercase">{step.targetLabel}</p>
+            <p className="mt-2 text-5xl font-semibold text-[var(--accent)]">{step.targetValue}</p>
+            <div className="mt-7 rounded-2xl bg-[var(--background)] px-4 py-4">
+              <p className="text-xs font-semibold tracking-[0.14em] text-[var(--muted)] uppercase">Up next</p>
+              <p className="mt-2 text-base font-semibold">{step.nextStepPreview}</p>
+            </div>
           </div>
 
           <div className="mt-6 flex gap-2" aria-label="Brew progress">
@@ -298,8 +303,8 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
           <div className="mt-auto pt-8">
             {syncMessage ? <p className="mb-3 text-sm text-[var(--muted)]" role="status">Offline — progress is saved on this device.</p> : null}
             {storageMessage ? <p className="mb-3 text-sm text-red-700" role="alert">{storageMessage}</p> : null}
-            <button className="min-h-16 w-full rounded-2xl bg-[var(--accent)] px-5 text-lg font-semibold text-white" onClick={isLastStep ? finish : advance} type="button">
-              {isLastStep ? "Finish Brew" : "Next"}
+            <button className="min-h-16 w-full rounded-2xl bg-[var(--accent)] px-5 text-lg font-semibold text-white" onClick={step.isFinalStep ? finish : advance} type="button">
+              {step.actionLabel}
             </button>
           </div>
         </div>

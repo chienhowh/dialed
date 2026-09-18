@@ -25,20 +25,10 @@ function isValidInput(input: BrewSessionSyncInput) {
     || (input.status === "brewing" && input.finishedAt !== null)
     || (input.status !== "brewing" && input.finishedAt === null)
     || (input.finishedAt !== null && Date.parse(input.finishedAt) < Date.parse(input.startedAt))
-    || !Array.isArray(input.steps)
   ) {
     return false;
   }
-
-  return input.steps.every((step) => (
-    UUID_PATTERN.test(step.brewPlanStepId)
-    && Number.isInteger(step.actualStartTime)
-    && step.actualStartTime >= 0
-    && (step.actualEndTime === null || (
-      Number.isInteger(step.actualEndTime)
-      && step.actualEndTime >= step.actualStartTime
-    ))
-  ));
+  return true;
 }
 
 export async function syncBrewSessionAction(input: BrewSessionSyncInput): Promise<BrewSessionSyncResult> {

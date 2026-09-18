@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
 
+import { syncBrewSession } from "../src/features/brew-session/repository";
+import type { Database } from "../src/types/database";
 import { createTestUser, deleteTestUser, signIn, type TestUser } from "./support/test-user";
 
 let owner: TestUser;
@@ -10,7 +12,7 @@ function authenticatedClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !publishableKey) throw new Error("Supabase test environment is missing.");
-  return createClient(url, publishableKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  return createClient<Database>(url, publishableKey, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
 async function createCoffee(client: SupabaseClient, user: TestUser) {
@@ -192,6 +194,8 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
   await page.getByRole("button", { name: "Start", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Bloom" })).toBeVisible();
   await expect(page.getByText("45g", { exact: true })).toBeVisible();
+  await expect(page.getByText("Target water", { exact: true })).toBeVisible();
+  await expect(page.getByText("0:40 · Pour to 120g", { exact: true })).toBeVisible();
 
   await expect.poll(async () => {
     const { count } = await ownerClient
@@ -203,16 +207,33 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
 
   const { data: startedSession, error: startedSessionError } = await ownerClient
     .from("brew_sessions")
-    .select("id, brew_plan_id, status")
+    .select("id, brew_plan_id, started_at, status")
     .eq("brew_plan_id", brewPlanId ?? "")
     .single();
   expect(startedSessionError).toBeNull();
   expect(startedSession).toMatchObject({ brew_plan_id: brewPlanId, status: "brewing" });
+  const localExecutionBeforeRefresh = await page.evaluate(() => JSON.parse(
+    window.localStorage.getItem("dialed.active-brew.v1") ?? "null",
+  ) as { sessionId?: string; startedAt?: string; version?: number } | null);
+  expect(localExecutionBeforeRefresh).toMatchObject({ sessionId: startedSession?.id, version: 2 });
+  expect(Date.parse(localExecutionBeforeRefresh?.startedAt ?? "")).toBe(Date.parse(startedSession?.started_at ?? ""));
 
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Second pour" })).toBeVisible();
+  const { count: stepCountAfterNext } = await ownerClient
+    .from("brew_session_steps")
+    .select("id", { count: "exact", head: true })
+    .eq("brew_session_id", startedSession?.id ?? "");
+  expect(stepCountAfterNext).toBe(0);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Second pour" })).toBeVisible();
+  const localExecutionAfterRefresh = await page.evaluate(() => JSON.parse(
+    window.localStorage.getItem("dialed.active-brew.v1") ?? "null",
+  ) as { sessionId?: string; startedAt?: string } | null);
+  expect(localExecutionAfterRefresh).toMatchObject({
+    sessionId: startedSession?.id,
+    startedAt: localExecutionBeforeRefresh?.startedAt,
+  });
   const { count: resumedSessionCount } = await ownerClient
     .from("brew_sessions")
     .select("id", { count: "exact", head: true })
@@ -222,13 +243,22 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
   await context.setOffline(true);
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Final pour" })).toBeVisible();
-  await page.getByRole("button", { name: "Finish Brew" }).click();
+  await page.getByRole("button", { name: "Finish Brew" }).evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
   await expect(page.getByText("Saved on this device", { exact: true })).toBeVisible();
   await context.setOffline(false);
 
   await expect(page).toHaveURL(new RegExp(`/brew/${brewPlanId}/session/${startedSession?.id}/feedback$`));
+  await expect(page.getByText("Brew Complete", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "How was it?" })).toBeVisible();
+  await expect(page.getByRole("form", { name: "Quick taste feedback" })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Pretty good" })).toBeVisible();
+  await expect(page.locator("details").filter({ hasText: "Add sensory details" })).not.toHaveAttribute("open", "");
+  await expect(page.getByLabel(/actual (coffee )?dose/i)).toHaveCount(0);
+  await expect(page.getByLabel(/actual water/i)).toHaveCount(0);
+  await expect(page.getByLabel(/actual temperature/i)).toHaveCount(0);
 
   const { data: completedSession, error: completedSessionError } = await ownerClient
     .from("brew_sessions")
@@ -252,11 +282,113 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
     .eq("brew_session_id", startedSession?.id ?? "")
     .order("step_order", { referencedTable: "brew_plan_steps" });
   expect(completedStepsError).toBeNull();
-  expect(completedSteps).toHaveLength(3);
-  expect(completedSteps?.map(({ actual_water }) => actual_water)).toEqual([45, 120, 240]);
-  expect(completedSteps?.every(({ actual_end_time, actual_start_time }) => (
-    actual_start_time !== null && actual_end_time !== null && actual_end_time >= actual_start_time
-  ))).toBe(true);
+  expect(completedSteps).toEqual([]);
+
+  const { count: sessionCountBeforeFeedback } = await ownerClient
+    .from("brew_sessions")
+    .select("id", { count: "exact", head: true })
+    .eq("brew_plan_id", brewPlanId ?? "");
+  const { count: planCountBeforeFeedback } = await ownerClient
+    .from("brew_plans")
+    .select("id", { count: "exact", head: true })
+    .eq("dial_in_thread_id", planBeforeEdit?.dial_in_thread_id ?? "");
+  const { data: planSnapshotBeforeFeedback } = await ownerClient
+    .from("brew_plans")
+    .select("coffee_dose, grind_level, ratio, recommendation_source, water_amount, water_temperature")
+    .eq("id", brewPlanId ?? "")
+    .single();
+
+  await page.getByText("Too sour", { exact: true }).click();
+  await page.getByRole("button", { name: "Save feedback" }).click();
+  await expect(page.getByText("Feedback saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Try this next", { exact: true })).toBeVisible();
+  await expect(page.getByRole("form", { name: "Quick taste feedback" })).toHaveCount(0);
+
+  const { data: savedFeedback, error: savedFeedbackError } = await ownerClient
+    .from("taste_feedback")
+    .select("brew_session_id, too_sour")
+    .eq("brew_session_id", startedSession?.id ?? "")
+    .single();
+  expect(savedFeedbackError).toBeNull();
+  expect(savedFeedback).toEqual({ brew_session_id: startedSession?.id, too_sour: true });
+  const { count: sessionCountAfterFeedback } = await ownerClient
+    .from("brew_sessions")
+    .select("id", { count: "exact", head: true })
+    .eq("brew_plan_id", brewPlanId ?? "");
+  const { count: planCountAfterFeedback } = await ownerClient
+    .from("brew_plans")
+    .select("id", { count: "exact", head: true })
+    .eq("dial_in_thread_id", planBeforeEdit?.dial_in_thread_id ?? "");
+  const { data: planSnapshotAfterFeedback } = await ownerClient
+    .from("brew_plans")
+    .select("coffee_dose, grind_level, ratio, recommendation_source, water_amount, water_temperature")
+    .eq("id", brewPlanId ?? "")
+    .single();
+  expect({ sessionCountAfterFeedback, sessionCountBeforeFeedback }).toEqual({
+    sessionCountAfterFeedback: 1,
+    sessionCountBeforeFeedback: 1,
+  });
+  expect({ planCountAfterFeedback, planCountBeforeFeedback }).toEqual({
+    planCountAfterFeedback: 1,
+    planCountBeforeFeedback: 1,
+  });
+  expect(planSnapshotAfterFeedback).toEqual(planSnapshotBeforeFeedback);
+  const { count: actualStepCountAfterFeedback } = await ownerClient
+    .from("brew_session_steps")
+    .select("id", { count: "exact", head: true })
+    .eq("brew_session_id", startedSession?.id ?? "");
+  expect(actualStepCountAfterFeedback).toBe(0);
+
+  const invalidPlanId = crypto.randomUUID();
+  const { error: invalidPlanError } = await ownerClient.from("brew_plans").insert({
+    coffee_dose: 15,
+    coffee_id: coffeeId,
+    dial_in_thread_id: planBeforeEdit?.dial_in_thread_id ?? "",
+    expected_flavor: "Repository validation fixture",
+    grind_level: "medium",
+    id: invalidPlanId,
+    ratio: 16,
+    recommendation_reason: "M8.3 repository validation",
+    recommendation_source: "manual",
+    target_brew_time_max: 180,
+    target_brew_time_min: 150,
+    user_id: owner.id,
+    water_amount: 240,
+    water_temperature: 92,
+  });
+  expect(invalidPlanError).toBeNull();
+  await expect(syncBrewSession(ownerClient, owner.id, {
+    brewPlanId: invalidPlanId,
+    finishedAt: null,
+    sessionId: crypto.randomUUID(),
+    startedAt: new Date().toISOString(),
+    status: "brewing",
+  })).rejects.toThrow("steps are unavailable or invalid");
+  const { error: mismatchStepError } = await ownerClient.from("brew_plan_steps").insert({
+    brew_plan_id: invalidPlanId,
+    id: crypto.randomUUID(),
+    start_time: 0,
+    step_order: 1,
+    step_type: "pour",
+    target_water: 240,
+  });
+  expect(mismatchStepError).toBeNull();
+  await expect(syncBrewSession(ownerClient, owner.id, {
+    brewPlanId: invalidPlanId,
+    finishedAt: null,
+    sessionId: startedSession?.id ?? "",
+    startedAt: startedSession?.started_at ?? "",
+    status: "brewing",
+  })).rejects.toThrow("identity does not match");
+
+  const completedAgain = await syncBrewSession(ownerClient, owner.id, {
+    brewPlanId: brewPlanId ?? "",
+    finishedAt: null,
+    sessionId: startedSession?.id ?? "",
+    startedAt: startedSession?.started_at ?? "",
+    status: "brewing",
+  });
+  expect(completedAgain.status).toBe("completed");
 
   const { count: feedbackCount } = await ownerClient
     .from("taste_feedback")
@@ -264,12 +396,13 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
     .eq("brew_session_id", startedSession?.id ?? "");
   const { count: adjustmentCount } = await ownerClient
     .from("adjustment_decisions")
-    .select("id", { count: "exact", head: true });
-  expect(feedbackCount).toBe(0);
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", owner.id);
+  expect(feedbackCount).toBe(1);
   expect(adjustmentCount).toBe(0);
   expect(await page.evaluate(() => window.localStorage.getItem("dialed.active-brew.v1"))).toBeNull();
 
-  await page.getByRole("link", { name: "Back" }).click();
+  await page.goto(`/brew/${brewPlanId}`);
   await expect(page.getByText("This plan is locked to preserve its Brew Session history.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Edit Plan" })).toHaveCount(0);
   await page.goto(`/brew/${brewPlanId}/edit`);

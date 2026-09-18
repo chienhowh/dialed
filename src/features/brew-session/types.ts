@@ -25,23 +25,16 @@ export type GuidedBrewPlanSnapshot = {
   waterTemperature: number;
 };
 
-export type RecordedStepTime = {
-  actualEndTime: number | null;
-  actualStartTime: number;
-  brewPlanStepId: string;
-};
-
 export type LocalBrewStatus = "aborted_pending_sync" | "active" | "completed_pending_sync";
 
 export type ActiveBrewRecord = {
   currentStepIndex: number;
   finishedAt: string | null;
   plan: GuidedBrewPlanSnapshot;
-  recordedStepTimes: readonly RecordedStepTime[];
   sessionId: string;
   startedAt: string;
   status: LocalBrewStatus;
-  version: 1;
+  version: 2;
 };
 
 export type BrewSessionStatus = "aborted" | "brewing" | "completed";
@@ -52,7 +45,6 @@ export type BrewSessionSyncInput = {
   sessionId: string;
   startedAt: string;
   status: BrewSessionStatus;
-  steps: readonly RecordedStepTime[];
 };
 
 export type BrewSessionSyncResult =

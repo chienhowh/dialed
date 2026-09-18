@@ -1,6 +1,6 @@
 # Dialed
 
-Dialed is a mobile-first coffee brewing assistant. The current implementation is the Milestone 1 application foundation; product features and Supabase integration intentionally come later.
+Dialed is a mobile-first coffee brewing assistant for choosing a taste goal, generating a Brew Plan, guiding a brew, recording feedback, and iterating through a dial-in history. The current implementation covers the MVP through Milestone 8.
 
 ## Requirements
 
@@ -11,6 +11,7 @@ Dialed is a mobile-first coffee brewing assistant. The current implementation is
 ## Local setup
 
 ```bash
+nvm use
 cp .env.example .env.local
 npm install
 npm run dev

@@ -39,7 +39,7 @@ export default async function FeedbackPage({ params }: FeedbackPageProps) {
 
   return (
     <section aria-labelledby="brew-complete-heading" className="mx-auto max-w-lg py-8 text-center">
-      <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Brew complete</p>
+      <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Brew Complete</p>
       <h1 id="brew-complete-heading" className="mt-3 text-3xl font-semibold tracking-tight">
         {feedback ? "Choose your next adjustment" : "How was it?"}
       </h1>
@@ -65,7 +65,12 @@ export default async function FeedbackPage({ params }: FeedbackPageProps) {
           <AdjustmentFlow action={adjustmentAction} inferredDirections={inferredDirections} />
         </>
       ) : (
-        <TasteFeedbackForm action={feedbackAction} cancelHref={`/brew/${brewPlanId}`} />
+        <>
+          <p className="mx-auto mt-5 max-w-sm text-sm leading-6 text-[var(--muted)]">
+            Choose what stood out. Add sensory details only if they are useful right now.
+          </p>
+          <TasteFeedbackForm action={feedbackAction} cancelHref={`/brew/${brewPlanId}`} />
+        </>
       )}
     </section>
   );

@@ -388,7 +388,7 @@ Brew Plan = Planned Data
 
 Brew Session = Actual Data
 
-例如：
+Brew Session 的 session-level `started_at`、`finished_at` 與 `actual_brew_time` 由實際執行 lifecycle 產生。以下 per-step actual timing/water 是未來有真正 measurement / correction source 時可保存的資料形狀，不由 Guided Brew 的 `NEXT` 推測：
 
 ```text
               Plan      Actual
@@ -404,7 +404,7 @@ Final         01:20     01:29
 Finish        02:20     02:37
 ```
 
-系統優先自動記錄時間。
+Milestone 8.3 不把手動切換畫面的時刻宣告成 actual step transition，也不把 Plan cumulative target water 寫成 actual poured water。
 
 Actual Water、Temperature 等需要額外操作的資訊，可由 future correction flow 在沖完後補記；Milestone 6 不包含此功能。
 
@@ -702,21 +702,33 @@ Start Brewing
 
 避免沖煮過程中要求大量輸入。
 
+Total Timer 是 Brew Session-level timer，從同一 Session 的 original `started_at` 與現在時間推導，不以 incrementing counter 作 source of truth。Refresh、background 或重新進入同一 device-local active brew 時，保留同一 Plan、Session ID、`started_at` 與 current presentation step，因此不建立第二個 Session，也不重設 timer。
+
+Current Step 顯示 `Step N of total`、Pour／Wait type、簡短 instruction 與 Plan target。Pour 顯示 persisted Brew Plan step 的 cumulative target water；Wait 顯示 duration guidance。Next Step preview 顯示下一步時間與 target，final step 顯示 `Finish brew`。
+
+`NEXT` 只手動前進 local presentation step，一次一格；不自動依 timer 前進、不 mutation Plan、不建立或同步新 Session、不寫 `brew_session_steps`，也不把按鍵時間或 Plan water target 當成 actual telemetry。M8 不要求沖煮中輸入 actual water。
+
+Final step 使用 `Finish Brew`。完成操作以同一 stable Session ID idempotently 寫入 `finished_at`、`actual_brew_time` 與 `completed` status，再前往該 exact Session 的 Taste Feedback route。一次 Plan execution 等於一個 Brew Session；同一 Plan 的下一次 Brew Again 是另一個 Session。
+
 ---
 
 ## 8.4 Complete Brew
 
-完成後：
+完成同一個 M8.3 Brew Session 後，直接在該 exact Session 的 Feedback route 合併顯示完成狀態與回饋，不加入多餘的 Continue confirmation，也不再次 complete Session：
 
 ```text
 Brew Complete
  ↓
 Quick Taste Feedback
+ ↓
+existing Decision / adjustment flow
 ```
 
-詳細 Sensory Feedback 可以 Optional 展開。
+Quick Taste Feedback 沿用 Milestone 6 vocabulary，並且至少選擇一項即可送出；Overall Rating 仍 optional。詳細 Sensory Feedback、Flavor Tags 與 Notes 收合在 optional disclosure，預設關閉。收合只屬於 presentation state，不能清除已輸入的值，也不成為 persisted domain state。
 
-Milestone 6 不提供 Actual Brew correction。Milestone 5 的 dose、water、temperature 與 pour-water actual fields 目前由 Brew Plan 初始化，不視為 independently measured deviations。Correction 保留為 future/backlog。
+Feedback 必須綁定這個 completed Session。Retry 沿用既有 conflict-safe historical snapshot persistence；已有 Feedback 時顯示既有 Decision／adjustment recovery 狀態，不重新呈現空白表單。這個流程不建立第二個 Session、不 clone 或 mutation Brew Plan，並保留 History 與 Coffee Detail 的既有 recovery links。
+
+Milestone 6 不提供 Actual Brew correction。Milestone 5 的 session-level dose、water 與 temperature fields 目前由 Brew Plan 初始化，不視為 independently measured deviations；Milestone 8.3 不再建立 per-step actual timing/water。Correction 保留為 future/backlog。
 
 ---
 

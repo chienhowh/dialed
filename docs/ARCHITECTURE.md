@@ -494,6 +494,8 @@ created_at
 
 `(brew_session_id, brew_plan_step_id)` 必須有 unique constraint，讓同一個 planned step 的 offline retry 可以安全 upsert，而不會建立重複 step record。
 
+Milestone 8.3 Guided Brew 不寫這張表。`NEXT` 只是 device-local presentation navigation；沒有 measurement source 時，不把 click timestamp 寫成 `actual_start_time`／`actual_end_time`，也不把 Plan `target_water` 複製為 `actual_water`。Schema 保留供 future 真實 telemetry 或 correction flow 使用，不為 M8 新增或移除欄位。
+
 ---
 
 # 10. Taste Feedback
@@ -1073,6 +1075,24 @@ elapsed time
 - Screen switching
 - Timer drift
 
+Timer 是整個 Brew Session 的 Total Timer。每次 render/tick 都以 stable local Session `startedAt` 重新計算 elapsed；interval 只觸發畫面更新，不累加 canonical elapsed state。Refresh 後仍使用 original timestamp。
+
+## Milestone 8.3 Guided Brew presentation
+
+Server route 使用 owner-scoped `getBrewPlan` 讀取 immutable Plan／Plan Steps snapshot，再建立 serializable `GuidedBrewPlanSnapshot` 傳入最小 client boundary。Pure presentation model 驗證 step snapshot 必須非空、順序連續、時間不倒退、IDs 唯一，且 Pour／Wait target shape 正確；無效資料直接走 not-found boundary，不 fabricated steps。
+
+Presentation model 將 current index 轉成 step number/type、instruction、target、next preview 與 `Next`／`Finish Brew` action。Step progression 只改 local `currentStepIndex`，不呼叫 Session sync。沒有 automatic advancement。
+
+Start 先產生 stable client UUID 與 original `startedAt`，保存 local record，再以 owner-scoped idempotent upsert 建立唯一 `brewing` Session。Finish 只在 final step成立，將同一 local record標記 terminal 並 sync 同一 Session；repository 以 Session ID、Plan ID 與 `startedAt` 驗證 identity，completed／aborted Session 不會被改回 brewing。成功後清除 matching local record並 replace至 exact `/brew/{planId}/session/{sessionId}/feedback`。
+
+## Milestone 8.4 completion and feedback composition
+
+Exact Session Feedback route 是 M8.4 唯一 completion surface。Route 先透過 owner-scoped `getFeedbackFlowContext` 同時載入 Plan 與 Session，並拒絕 fabricated ID、cross-owner access、Plan／Session mismatch 與 non-completed Session；feedback UI 不再執行 Session completion。
+
+沒有 Feedback 時，同頁呈現 `Brew Complete`、persisted session-level `actual_brew_time` 與 M6 `TasteFeedbackForm`。Quick Feedback 是 primary interaction；optional sensory ratings、flavor tags 與 notes 保持在預設收合的原生 disclosure 內。Disclosure state 不持久化，欄位不因收合而 unmount，因此已輸入資料不會被 presentation toggle 清除。
+
+Submission 沿用 M6 server action 與 repository：Feedback 以 exact `brew_session_id` conflict-safe insert-and-fetch，並依既有 interpretation 進入 M6/M7 Decision flow。已有 Feedback 時，route 直接 render persisted Adjustment selection/result，不顯示新的空白 feedback form。這條路徑不建立 Session、不寫 `brew_session_steps`、不 clone／mutation Plan，也不把 Plan-derived session dose、water 或 temperature 呈現成 measured actual correction。
+
 ---
 
 # 18. Active Brew Persistence
@@ -1084,6 +1104,7 @@ MVP 只維護一筆 recoverable local brew record。它可以處於：
 ```text
 active
 completed_pending_sync
+aborted_pending_sync
 ```
 
 至少保存：
@@ -1093,8 +1114,9 @@ brewSessionId
 brewPlan
 startedAt
 currentStep
-recordedStepTimes
 ```
+
+Local record version 2 不保存 inferred step timing 或 water telemetry。Parser 可以將既有 version 1 active record升級為 version 2，保留 Plan、Session、start time、current step 與 terminal state，同時丟棄過去由 UI transitions 推得的 `recordedStepTimes`。
 
 目的：
 
@@ -1129,7 +1151,7 @@ MVP 不追求：
 - Active timer
 - Current Brew Plan
 - Step progression
-- Local session recording
+- Local Session identity and lifecycle state
 
 ### Online Preferred
 

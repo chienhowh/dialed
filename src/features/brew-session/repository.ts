@@ -87,26 +87,18 @@ async function getExecutionPlan(
   return data as ExecutionPlanRow;
 }
 
-function validateRecordedSteps(plan: ExecutionPlanRow, input: BrewSessionSyncInput) {
+function validateExecutionPlan(plan: ExecutionPlanRow) {
   const planSteps = [...plan.brew_plan_steps].sort((left, right) => left.step_order - right.step_order);
-  if (input.steps.length === 0 || input.steps.length > planSteps.length) {
-    throw new BrewSessionSyncError("Recorded Brew Session steps do not match the Brew Plan.");
-  }
-
-  input.steps.forEach((step, index) => {
-    if (step.brewPlanStepId !== planSteps[index]?.id) {
-      throw new BrewSessionSyncError("Recorded Brew Session steps are out of sequence.");
-    }
-  });
-
   if (
-    input.status === "completed"
-    && (input.steps.length !== planSteps.length || input.steps.some(({ actualEndTime }) => actualEndTime === null))
-  ) {
-    throw new BrewSessionSyncError("A completed Brew Session must include every completed Brew Plan step.");
-  }
-
-  return planSteps;
+    planSteps.length === 0
+    || planSteps.some((step, index) => (
+      !step.id
+      || step.step_order !== index + 1
+      || (step.step_type === "pour" && (step.target_water === null || step.target_water <= 0))
+      || (step.step_type === "wait" && step.target_water !== null)
+      || (step.step_type !== "pour" && step.step_type !== "wait")
+    ))
+  ) throw new BrewSessionSyncError("Brew Plan steps are unavailable or invalid.");
 }
 
 async function findBrewSession(
@@ -135,7 +127,7 @@ export async function syncBrewSession(
   input: BrewSessionSyncInput,
 ) {
   const plan = await getExecutionPlan(supabase, userId, input.brewPlanId);
-  const planSteps = validateRecordedSteps(plan, input);
+  validateExecutionPlan(plan);
   let session = await findBrewSession(supabase, userId, input.sessionId);
 
   if (session && (session.brewPlanId !== plan.id || !sameTimestamp(session.startedAt, input.startedAt))) {
@@ -163,19 +155,6 @@ export async function syncBrewSession(
       throw new BrewSessionSyncError("Brew Session identity does not match this execution.");
     }
   }
-
-  const actualSteps = input.steps.map((step, index) => ({
-    actual_end_time: step.actualEndTime,
-    actual_start_time: step.actualStartTime,
-    actual_water: planSteps[index]?.step_type === "pour" ? planSteps[index]?.target_water : null,
-    brew_plan_step_id: step.brewPlanStepId,
-    brew_session_id: input.sessionId,
-  }));
-  const { error: stepsError } = await supabase
-    .from("brew_session_steps")
-    .upsert(actualSteps, { onConflict: "brew_session_id,brew_plan_step_id" });
-
-  if (stepsError) throw new BrewSessionSyncError("Unable to save Brew Session steps.", { cause: stepsError });
 
   if (input.status !== "brewing") {
     if (!input.finishedAt) throw new BrewSessionSyncError("A finished Brew Session requires a finish time.");

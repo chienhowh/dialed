@@ -3,9 +3,10 @@ import type { BrewPlan } from "@/features/brew-plan/types";
 import { getCoffeeDisplayName } from "@/features/coffee/coffee-display";
 
 import type { GuidedBrewPlanSnapshot } from "./types";
+import { assertGuidedBrewPlanSnapshot } from "./presentation";
 
 export function createGuidedBrewPlanSnapshot(plan: BrewPlan): GuidedBrewPlanSnapshot {
-  return {
+  const snapshot: GuidedBrewPlanSnapshot = {
     brewPlanId: plan.id,
     coffeeDose: plan.coffeeDose,
     coffeeName: getCoffeeDisplayName(plan.coffee),
@@ -19,4 +20,6 @@ export function createGuidedBrewPlanSnapshot(plan: BrewPlan): GuidedBrewPlanSnap
     waterAmount: plan.waterAmount,
     waterTemperature: plan.waterTemperature,
   };
+  assertGuidedBrewPlanSnapshot(snapshot);
+  return snapshot;
 }
