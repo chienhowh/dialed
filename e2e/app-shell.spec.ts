@@ -43,6 +43,12 @@ test("exposes the basic PWA assets", async ({ request }) => {
   const serviceWorkerResponse = await request.get("/sw.js");
   expect(serviceWorkerResponse.ok()).toBe(true);
   expect(serviceWorkerResponse.headers()["content-type"]).toContain("application/javascript");
+  const serviceWorker = await serviceWorkerResponse.text();
+  expect(serviceWorker).toContain('const CACHE_NAME = "dialed-static-v2"');
+  expect(serviceWorker).toContain('event.request.mode === "navigate"');
+  expect(serviceWorker).toContain("caches.delete(key)");
+  expect(serviceWorker).not.toContain("cache.put");
+  expect(serviceWorker).not.toContain('caches.match("/")');
 });
 
 test("registers the service worker in the production shell", async ({ page }) => {
@@ -52,4 +58,28 @@ test("registers the service worker in the production shell", async ({ page }) =>
   });
 
   expect(scriptUrl).toBe("http://localhost:3000/sw.js");
+});
+
+test("never stores or serves authenticated navigation HTML from Cache Storage", async ({ context, page }) => {
+  await page.goto("/");
+  await page.goto("/coffee");
+  await page.goto("/history");
+
+  const cachedUrls = await page.evaluate(async () => {
+    const urls: string[] = [];
+    for (const cacheName of await caches.keys()) {
+      const cache = await caches.open(cacheName);
+      urls.push(...(await cache.keys()).map(({ url }) => url));
+    }
+    return urls;
+  });
+
+  expect(cachedUrls.every((url) => new URL(url).pathname === "/icon.svg")).toBe(true);
+  expect(cachedUrls.some((url) => ["/", "/coffee", "/history"].includes(new URL(url).pathname))).toBe(false);
+
+  await page.goto("about:blank");
+  await context.setOffline(true);
+  await expect(page.goto("/coffee", { waitUntil: "domcontentloaded" })).rejects.toThrow();
+  await expect(page.getByRole("heading", { name: "My Coffee" })).toHaveCount(0);
+  await context.setOffline(false);
 });

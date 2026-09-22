@@ -35,3 +35,12 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+
+.guided-brew-screen {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.guided-brew-frame {
+  min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}

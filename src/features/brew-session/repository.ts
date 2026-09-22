@@ -31,9 +31,12 @@ type BrewSessionRow = {
 };
 
 export class BrewSessionSyncError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  readonly reason: "retryable" | "unavailable";
+
+  constructor(message: string, reason: "retryable" | "unavailable" = "retryable", options?: ErrorOptions) {
     super(message, options);
     this.name = "BrewSessionSyncError";
+    this.reason = reason;
   }
 }
 
@@ -82,8 +85,8 @@ async function getExecutionPlan(
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (error) throw new BrewSessionSyncError("Unable to load the Brew Plan execution snapshot.", { cause: error });
-  if (!data) throw new BrewSessionSyncError("Brew Plan is unavailable.");
+  if (error) throw new BrewSessionSyncError("Unable to load the Brew Plan execution snapshot.", "retryable", { cause: error });
+  if (!data) throw new BrewSessionSyncError("Brew Plan is unavailable.", "unavailable");
   return data as ExecutionPlanRow;
 }
 
@@ -113,7 +116,7 @@ async function findBrewSession(
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (error) throw new BrewSessionSyncError("Unable to load the Brew Session.", { cause: error });
+  if (error) throw new BrewSessionSyncError("Unable to load the Brew Session.", "retryable", { cause: error });
   return data ? toBrewSession(data as BrewSessionRow) : null;
 }
 
@@ -131,28 +134,26 @@ export async function syncBrewSession(
   let session = await findBrewSession(supabase, userId, input.sessionId);
 
   if (session && (session.brewPlanId !== plan.id || !sameTimestamp(session.startedAt, input.startedAt))) {
-    throw new BrewSessionSyncError("Brew Session identity does not match this execution.");
+    throw new BrewSessionSyncError("Brew Session identity does not match this execution.", "unavailable");
   }
 
   if (session && session.status !== "brewing") return session;
 
   if (!session) {
-    const { error } = await supabase.from("brew_sessions").upsert({
-      actual_coffee_dose: plan.coffee_dose,
-      actual_water_amount: plan.water_amount,
-      actual_water_temperature: plan.water_temperature,
-      brew_plan_id: plan.id,
-      id: input.sessionId,
-      started_at: input.startedAt,
-      status: "brewing",
-      user_id: userId,
-    }, { ignoreDuplicates: true, onConflict: "id" });
+    const { error } = await supabase.rpc("start_brew_session", {
+      p_brew_plan_id: plan.id,
+      p_session_id: input.sessionId,
+      p_started_at: input.startedAt,
+    });
 
-    if (error) throw new BrewSessionSyncError("Unable to create the Brew Session.", { cause: error });
+    if (error?.code === "42501" || error?.code === "22023") {
+      throw new BrewSessionSyncError("Brew Plan or Brew Session is unavailable.", "unavailable", { cause: error });
+    }
+    if (error) throw new BrewSessionSyncError("Unable to create the Brew Session.", "retryable", { cause: error });
     session = await findBrewSession(supabase, userId, input.sessionId);
     if (!session) throw new BrewSessionSyncError("Brew Session could not be created.");
     if (session.brewPlanId !== plan.id || !sameTimestamp(session.startedAt, input.startedAt)) {
-      throw new BrewSessionSyncError("Brew Session identity does not match this execution.");
+      throw new BrewSessionSyncError("Brew Session identity does not match this execution.", "unavailable");
     }
   }
 
@@ -172,7 +173,7 @@ export async function syncBrewSession(
       .select("id, brew_plan_id, started_at, finished_at, actual_coffee_dose, actual_water_temperature, actual_water_amount, actual_brew_time, status")
       .maybeSingle();
 
-    if (error) throw new BrewSessionSyncError("Unable to finish the Brew Session.", { cause: error });
+    if (error) throw new BrewSessionSyncError("Unable to finish the Brew Session.", "retryable", { cause: error });
     if (data) return toBrewSession(data as BrewSessionRow);
 
     const completed = await findBrewSession(supabase, userId, input.sessionId);

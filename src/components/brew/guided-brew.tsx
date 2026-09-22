@@ -17,6 +17,7 @@ import {
 } from "@/features/brew-session/active-brew";
 import { syncBrewSessionAction } from "@/features/brew-session/actions";
 import { getGuidedBrewStepPresentation } from "@/features/brew-session/presentation";
+import { createScreenWakeLockController, type WakeLockSentinelLike } from "@/features/brew-session/screen-wake-lock";
 import { getElapsedSeconds } from "@/features/brew-session/timer";
 import type { ActiveBrewRecord, GuidedBrewPlanSnapshot } from "@/features/brew-session/types";
 
@@ -33,7 +34,7 @@ function GuidedHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
+export function GuidedBrew({ ownerUserId, plan }: { ownerUserId: string; plan: GuidedBrewPlanSnapshot }) {
   const router = useRouter();
   const [record, setRecord] = useState<ActiveBrewRecord | null>(null);
   const [foreignRecord, setForeignRecord] = useState<ActiveBrewRecord | null>(null);
@@ -44,6 +45,7 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
   const syncingTerminalRef = useRef<string | null>(null);
   const finishRequestedRef = useRef(false);
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const activeSessionId = record?.status === "active" ? record.sessionId : null;
 
   const syncRecord = useCallback(async (nextRecord: ActiveBrewRecord) => {
     if (nextRecord.status !== "active" && syncingTerminalRef.current === nextRecord.sessionId) return;
@@ -59,6 +61,12 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
     }
 
     if (!result.success) {
+      if (result.reason === "unavailable") {
+        clearActiveBrew(window.localStorage, ownerUserId, nextRecord.sessionId);
+        setRecord(null);
+        setForeignRecord(null);
+        setStorageMessage("An unavailable device recovery was removed. You can start this brew again.");
+      }
       setSyncMessage(result.message);
       syncingTerminalRef.current = null;
       return;
@@ -66,14 +74,14 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
 
     setSyncMessage(null);
     if (result.status === "completed" || result.status === "aborted") {
-      clearActiveBrew(window.localStorage, nextRecord.sessionId);
+      clearActiveBrew(window.localStorage, ownerUserId, nextRecord.sessionId);
       if (result.status === "completed") {
         router.replace(completionPath(nextRecord));
       } else {
         router.replace(`/brew/${nextRecord.plan.brewPlanId}`);
       }
     }
-  }, [router]);
+  }, [ownerUserId, router]);
 
   const queueSync = useCallback((nextRecord: ActiveBrewRecord) => {
     syncQueueRef.current = syncQueueRef.current.then(
@@ -84,20 +92,21 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
 
   useEffect(() => {
     const restoreTimer = window.setTimeout(() => {
-      const stored = readActiveBrew(window.localStorage);
+      const stored = readActiveBrew(window.localStorage, ownerUserId);
       if (stored?.plan.brewPlanId === plan.brewPlanId) {
         setRecord(stored);
         queueSync(stored);
       } else if (stored) {
         setForeignRecord(stored);
+        queueSync(stored);
       }
       setHydrated(true);
     }, 0);
     return () => window.clearTimeout(restoreTimer);
-  }, [plan.brewPlanId, queueSync]);
+  }, [ownerUserId, plan.brewPlanId, queueSync]);
 
   useEffect(() => {
-    if (!record || record.status !== "active") return;
+    if (!activeSessionId) return;
 
     const initialTick = window.setTimeout(() => setNow(Date.now()), 0);
     const timer = window.setInterval(() => setNow(Date.now()), 250);
@@ -105,16 +114,29 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
       window.clearTimeout(initialTick);
       window.clearInterval(timer);
     };
-  }, [record]);
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const wakeLock = (navigator as Navigator & {
+      wakeLock?: { request(type: "screen"): Promise<WakeLockSentinelLike> };
+    }).wakeLock;
+    const controller = createScreenWakeLockController({
+      request: wakeLock ? () => wakeLock.request("screen") : undefined,
+      visibility: document,
+    });
+    controller.start();
+    return () => { void controller.stop(); };
+  }, [activeSessionId]);
 
   useEffect(() => {
     const handleOnline = () => {
-      const stored = readActiveBrew(window.localStorage);
+      const stored = readActiveBrew(window.localStorage, ownerUserId);
       if (stored) queueSync(stored);
     };
     window.addEventListener("online", handleOnline);
     return () => window.removeEventListener("online", handleOnline);
-  }, [queueSync]);
+  }, [ownerUserId, queueSync]);
 
   function store(nextRecord: ActiveBrewRecord) {
     try {
@@ -130,18 +152,19 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
 
   function start() {
     try {
-      const stored = readActiveBrew(window.localStorage);
+      const stored = readActiveBrew(window.localStorage, ownerUserId);
       if (stored) {
         if (stored.plan.brewPlanId === plan.brewPlanId) {
           setRecord(stored);
           queueSync(stored);
         } else {
           setForeignRecord(stored);
+          queueSync(stored);
         }
         return;
       }
 
-      const nextRecord = createActiveBrewRecord(plan, crypto.randomUUID(), Date.now());
+      const nextRecord = createActiveBrewRecord(plan, crypto.randomUUID(), ownerUserId, Date.now());
       if (store(nextRecord)) queueSync(nextRecord);
     } catch {
       setStorageMessage("This device could not save the brew. Free some browser storage, then try again.");
@@ -177,7 +200,7 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
 
   if (!hydrated) {
     return (
-      <section className="fixed inset-0 z-50 grid place-items-center bg-[var(--background)] px-5" aria-live="polite">
+      <section className="guided-brew-screen fixed inset-0 z-50 grid place-items-center bg-[var(--background)] px-5" aria-live="polite">
         <p className="text-sm text-[var(--muted)]">Restoring brew…</p>
       </section>
     );
@@ -186,8 +209,8 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
   if (foreignRecord) {
     const isActive = foreignRecord.status === "active";
     return (
-      <section className="fixed inset-0 z-50 overflow-y-auto bg-[var(--background)]">
-        <div className="mx-auto flex min-h-dvh max-w-xl flex-col">
+      <section className="guided-brew-screen fixed inset-0 z-50 overflow-y-auto bg-[var(--background)]">
+        <div className="guided-brew-frame mx-auto flex max-w-xl flex-col">
           <GuidedHeader>
             <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--muted)]" href={`/brew/${plan.brewPlanId}`}>Close</Link>
           </GuidedHeader>
@@ -210,8 +233,8 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
 
   if (!record) {
     return (
-      <section className="fixed inset-0 z-50 overflow-y-auto bg-[var(--background)]">
-        <div className="mx-auto flex min-h-dvh max-w-xl flex-col">
+      <section className="guided-brew-screen fixed inset-0 z-50 overflow-y-auto bg-[var(--background)]">
+        <div className="guided-brew-frame mx-auto flex max-w-xl flex-col">
           <GuidedHeader>
             <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--muted)]" href={`/brew/${plan.brewPlanId}`}>Close</Link>
           </GuidedHeader>
@@ -256,7 +279,7 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
 
   if (record.status !== "active") {
     return (
-      <section className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--background)] px-5 text-center">
+      <section className="guided-brew-screen fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--background)] px-5 text-center">
         <div className="w-full max-w-sm">
           <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Saved on this device</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">Finishing your brew…</h1>
@@ -271,36 +294,36 @@ export function GuidedBrew({ plan }: { plan: GuidedBrewPlanSnapshot }) {
   const step = getGuidedBrewStepPresentation(record.plan, record.currentStepIndex);
 
   return (
-    <section className="fixed inset-0 z-50 overflow-y-auto bg-[var(--background)]">
-      <div className="mx-auto flex min-h-dvh max-w-xl flex-col">
+    <section className="guided-brew-screen fixed inset-0 z-50 overflow-y-auto bg-[var(--background)]" data-testid="guided-brew-active">
+      <div className="guided-brew-frame mx-auto flex max-w-xl flex-col">
         <GuidedHeader>
           <button className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--muted)]" onClick={abort} type="button">Stop</button>
         </GuidedHeader>
 
-        <div className="flex flex-1 flex-col px-5 py-7 text-center">
+        <div className="flex flex-1 flex-col px-4 py-3 text-center sm:px-5 sm:py-7">
           <div aria-live="off">
             <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Total Timer</p>
-            <time className="mt-1 block font-mono text-6xl font-semibold tracking-tight tabular-nums" dateTime={`PT${elapsed}S`}>{formatSeconds(elapsed)}</time>
+            <time className="mt-1 block font-mono text-5xl font-semibold tracking-tight tabular-nums sm:text-6xl" dateTime={`PT${elapsed}S`}>{formatSeconds(elapsed)}</time>
           </div>
 
-          <div className="mt-7 rounded-3xl border border-[var(--border)] bg-[var(--surface)] px-5 py-8 shadow-sm">
+          <div className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-4 shadow-sm sm:mt-7 sm:rounded-3xl sm:px-5 sm:py-8">
             <p className="text-xs font-semibold tracking-[0.16em] text-[var(--muted)] uppercase">Step {step.stepNumber} of {step.totalStepCount} · {step.stepTypeLabel}</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">{step.instruction}</h1>
-            <p className="mt-6 text-sm font-semibold tracking-wide text-[var(--muted)] uppercase">{step.targetLabel}</p>
-            <p className="mt-2 text-5xl font-semibold text-[var(--accent)]">{step.targetValue}</p>
-            <div className="mt-7 rounded-2xl bg-[var(--background)] px-4 py-4">
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:mt-3 sm:text-3xl">{step.instruction}</h1>
+            <p className="mt-3 text-xs font-semibold tracking-wide text-[var(--muted)] uppercase sm:mt-6 sm:text-sm">{step.targetLabel}</p>
+            <p className="mt-1 text-4xl font-semibold text-[var(--accent)] sm:mt-2 sm:text-5xl">{step.targetValue}</p>
+            <div className="mt-3 rounded-xl bg-[var(--background)] px-3 py-2 sm:mt-7 sm:rounded-2xl sm:px-4 sm:py-4">
               <p className="text-xs font-semibold tracking-[0.14em] text-[var(--muted)] uppercase">Up next</p>
-              <p className="mt-2 text-base font-semibold">{step.nextStepPreview}</p>
+              <p className="mt-1 text-sm font-semibold sm:mt-2 sm:text-base">{step.nextStepPreview}</p>
             </div>
           </div>
 
-          <div className="mt-6 flex gap-2" aria-label="Brew progress">
+          <div className="mt-3 flex gap-2 sm:mt-6" aria-label="Brew progress">
             {record.plan.steps.map((step, index) => (
               <span className={`h-1.5 flex-1 rounded-full ${index <= record.currentStepIndex ? "bg-[var(--accent)]" : "bg-[var(--border)]"}`} key={step.id} />
             ))}
           </div>
 
-          <div className="mt-auto pt-8">
+          <div className="mt-auto pt-3 sm:pt-8">
             {syncMessage ? <p className="mb-3 text-sm text-[var(--muted)]" role="status">Offline — progress is saved on this device.</p> : null}
             {storageMessage ? <p className="mb-3 text-sm text-red-700" role="alert">{storageMessage}</p> : null}
             <button className="min-h-16 w-full rounded-2xl bg-[var(--accent)] px-5 text-lg font-semibold text-white" onClick={step.isFinalStep ? finish : advance} type="button">

@@ -33,6 +33,7 @@ const plan: GuidedBrewPlanSnapshot = {
 };
 
 const sessionId = "c6000000-0000-4000-8000-000000000001";
+const ownerUserId = "c7000000-0000-4000-8000-000000000001";
 const startedAt = Date.parse("2026-09-02T01:00:00.000Z");
 
 function memoryStorage() {
@@ -47,7 +48,7 @@ function memoryStorage() {
 
 describe("active Brew Session state", () => {
   it("moves through persisted steps without creating actual step telemetry", () => {
-    const started = createActiveBrewRecord(plan, sessionId, startedAt);
+    const started = createActiveBrewRecord(plan, sessionId, ownerUserId, startedAt);
     const waiting = advanceActiveBrew(started);
     const pouring = advanceActiveBrew(waiting);
     const completed = completeActiveBrew(pouring, startedAt + 150_800);
@@ -65,10 +66,10 @@ describe("active Brew Session state", () => {
 
   it("restores the same stable session and timestamp after a refresh", () => {
     const storage = memoryStorage();
-    const active = advanceActiveBrew(createActiveBrewRecord(plan, sessionId, startedAt));
+    const active = advanceActiveBrew(createActiveBrewRecord(plan, sessionId, ownerUserId, startedAt));
     saveActiveBrew(storage, active);
 
-    const restored = readActiveBrew(storage);
+    const restored = readActiveBrew(storage, ownerUserId);
     expect(restored).toEqual(active);
     expect(restored?.sessionId).toBe(sessionId);
     expect(restored?.startedAt).toBe("2026-09-02T01:00:00.000Z");
@@ -79,31 +80,33 @@ describe("active Brew Session state", () => {
   it("keeps completion idempotent and clears only the matching local execution", () => {
     const storage = memoryStorage();
     const finalStep = advanceActiveBrew(
-      advanceActiveBrew(createActiveBrewRecord(plan, sessionId, startedAt)),
+      advanceActiveBrew(createActiveBrewRecord(plan, sessionId, ownerUserId, startedAt)),
     );
     const completed = completeActiveBrew(finalStep, startedAt + 150_000);
     saveActiveBrew(storage, completed);
 
     expect(completeActiveBrew(completed, startedAt + 170_000)).toBe(completed);
-    clearActiveBrew(storage, "c6000000-0000-4000-8000-000000000099");
-    expect(readActiveBrew(storage)).toEqual(completed);
-    clearActiveBrew(storage, sessionId);
-    expect(readActiveBrew(storage)).toBeNull();
+    clearActiveBrew(storage, ownerUserId, "c6000000-0000-4000-8000-000000000099");
+    expect(readActiveBrew(storage, ownerUserId)).toEqual(completed);
+    clearActiveBrew(storage, ownerUserId, sessionId);
+    expect(readActiveBrew(storage, ownerUserId)).toBeNull();
   });
 
   it("rejects inconsistent local records instead of resuming corrupt state", () => {
-    const active = createActiveBrewRecord(plan, sessionId, startedAt);
+    const active = createActiveBrewRecord(plan, sessionId, ownerUserId, startedAt);
     expect(parseActiveBrewRecord(JSON.stringify({ ...active, currentStepIndex: 3 }))).toBeNull();
   });
 
-  it("recovers a legacy v1 record while discarding unmeasured step values", () => {
-    const active = createActiveBrewRecord(plan, sessionId, startedAt);
-    const legacy = {
-      ...active,
-      recordedStepTimes: [{ actualEndTime: null, actualStartTime: 0, brewPlanStepId: plan.steps[0].id }],
-      version: 1,
-    };
+  it("removes legacy, malformed, and cross-account recovery state", () => {
+    const storage = memoryStorage();
+    const active = createActiveBrewRecord(plan, sessionId, ownerUserId, startedAt);
 
-    expect(parseActiveBrewRecord(JSON.stringify(legacy))).toEqual(active);
+    storage.setItem(ACTIVE_BREW_STORAGE_KEY, JSON.stringify({ ...active, version: 2 }));
+    expect(readActiveBrew(storage, ownerUserId)).toBeNull();
+    expect(storage.values.has(ACTIVE_BREW_STORAGE_KEY)).toBe(false);
+
+    saveActiveBrew(storage, active);
+    expect(readActiveBrew(storage, "c7000000-0000-4000-8000-000000000002")).toBeNull();
+    expect(storage.values.has(ACTIVE_BREW_STORAGE_KEY)).toBe(false);
   });
 });

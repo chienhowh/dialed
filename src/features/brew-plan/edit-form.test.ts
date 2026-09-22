@@ -10,6 +10,7 @@ const plan = {
   steps: [
     { duration: null, id: "step-1", note: "Bloom", startTime: 0, stepOrder: 1, stepType: "pour", targetWater: 40 },
     { duration: 30, id: "step-2", note: "Wait", startTime: 10, stepOrder: 2, stepType: "wait", targetWater: null },
+    { duration: null, id: "step-3", note: "Final", startTime: 40, stepOrder: 3, stepType: "pour", targetWater: 240 },
   ],
   targetBrewTimeMax: 160,
   targetBrewTimeMin: 135,
@@ -30,6 +31,8 @@ function validFormData() {
   data.set("step.step-1.targetWater", "40");
   data.set("step.step-2.startTime", "10");
   data.set("step.step-2.duration", "30");
+  data.set("step.step-3.startTime", "40");
+  data.set("step.step-3.targetWater", "240");
   return data;
 }
 
@@ -43,6 +46,7 @@ describe("parseBrewPlanEditFormData", () => {
         steps: [
           { duration: null, id: "step-1", startTime: 0, targetWater: 40 },
           { duration: 30, id: "step-2", startTime: 10, targetWater: null },
+          { duration: null, id: "step-3", startTime: 40, targetWater: 240 },
         ],
         targetBrewTimeMax: 160,
         targetBrewTimeMin: 135,
@@ -71,5 +75,41 @@ describe("parseBrewPlanEditFormData", () => {
     const data = validFormData();
     data.set("waterTemperature", "92.5");
     expect(parseBrewPlanEditFormData(data, plan).success).toBe(false);
+  });
+
+  it("rejects ratio/water and final Pour mismatches", () => {
+    const ratioMismatch = validFormData();
+    ratioMismatch.set("waterAmount", "250");
+    const ratioResult = parseBrewPlanEditFormData(ratioMismatch, plan);
+    expect(ratioResult.success).toBe(false);
+    if (!ratioResult.success) expect(ratioResult.errors.waterAmount).toContain("dose × ratio");
+
+    const finalPourMismatch = validFormData();
+    finalPourMismatch.set("step.step-3.targetWater", "239");
+    const finalResult = parseBrewPlanEditFormData(finalPourMismatch, plan);
+    expect(finalResult.success).toBe(false);
+    if (!finalResult.success) expect(finalResult.errors["step.step-3.targetWater"]).toContain("total water");
+  });
+
+  it("accepts the documented tenth-gram consistency tolerance", () => {
+    const data = validFormData();
+    data.set("ratio", "16.67");
+    data.set("waterAmount", "250");
+    data.set("step.step-3.targetWater", "250");
+    expect(parseBrewPlanEditFormData(data, plan).success).toBe(true);
+  });
+
+  it("rejects decreasing cumulative targets and invalid timing order", () => {
+    const decreasing = validFormData();
+    decreasing.set("step.step-1.targetWater", "250");
+    const targetResult = parseBrewPlanEditFormData(decreasing, plan);
+    expect(targetResult.success).toBe(false);
+    if (!targetResult.success) expect(targetResult.errors["step.step-3.targetWater"]).toContain("backward");
+
+    const timing = validFormData();
+    timing.set("step.step-3.startTime", "35");
+    const timingResult = parseBrewPlanEditFormData(timing, plan);
+    expect(timingResult.success).toBe(false);
+    if (!timingResult.success) expect(timingResult.errors["step.step-3.startTime"]).toContain("previous timed step");
   });
 });

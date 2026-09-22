@@ -75,6 +75,9 @@ Pour to
 - Current Plan, Session identity, original start time, and presentation step survive accidental reload/backgrounding.
 - The final step replaces `NEXT` with `Finish Brew`; completion updates the same Session and routes to its exact Taste Feedback page.
 - One Brew Plan execution equals one Brew Session. Refresh and step navigation do not create additional Sessions.
+- Active state requests Screen Wake Lock where supported and releases it on hide, terminal state, or exit. Unsupported/denied Wake Lock is silent and never changes timestamp-based timer correctness.
+- At approximately `375×667`, Timer, current instruction, target, and Next／Finish remain visible without vertical scrolling. Secondary preview/progress becomes compact and controls respect standalone safe-area insets.
+- The local record belongs to the authenticated user. AppShell can rediscover current-user active or pending-sync recovery after reopening; cross-user/malformed/stale records are not rendered and cannot block a new brew.
 - Actual water should not be required during the brew.
 - Optional vibration / notification can be considered if reliable in the PWA environment.
 

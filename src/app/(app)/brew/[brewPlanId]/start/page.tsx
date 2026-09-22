@@ -21,5 +21,5 @@ export default async function StartBrewPage({ params }: StartBrewPageProps) {
     if (error instanceof InvalidGuidedBrewPlanError) notFound();
     throw error;
   }
-  return <GuidedBrew plan={snapshot} />;
+  return <GuidedBrew ownerUserId={user.id} plan={snapshot} />;
 }

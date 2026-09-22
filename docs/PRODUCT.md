@@ -367,6 +367,8 @@ Recommendation Knowledge
 
 在第一個 Brew Session 開始前，使用者可以編輯這份 Brew Plan。開始後該 Plan 會鎖定，後續執行資料只寫入 Brew Session，不回寫或重解釋原始 Plan。
 
+手動編輯必須維持 snapshot 的結構一致：Water 以 `dose × ratio` 四捨五入至兩位小數為準，允許 `0.1g` precision tolerance；Pour cumulative targets 不得倒退，最後一個 Pour target 必須在相同 tolerance 內等於 total Water；step 起始時間依 Plan order 嚴格遞增、不得與前一個有 duration 的 step 重疊，且 final step start 不得晚於 target finish max。Plan 與全部 step changes 必須一起成功或一起失敗。若 Brew Session 與 edit 同時開始，先取得 Plan lock 的操作完成後，另一操作仍須重新驗證 immutable-after-start 規則。
+
 來源可能為：
 
 - Official Rule
@@ -707,6 +709,8 @@ Total Timer 是 Brew Session-level timer，從同一 Session 的 original `start
 Current Step 顯示 `Step N of total`、Pour／Wait type、簡短 instruction 與 Plan target。Pour 顯示 persisted Brew Plan step 的 cumulative target water；Wait 顯示 duration guidance。Next Step preview 顯示下一步時間與 target，final step 顯示 `Finish brew`。
 
 `NEXT` 只手動前進 local presentation step，一次一格；不自動依 timer 前進、不 mutation Plan、不建立或同步新 Session、不寫 `brew_session_steps`，也不把按鍵時間或 Plan water target 當成 actual telemetry。M8 不要求沖煮中輸入 actual water。
+
+Active Guided Brew 在支援的瀏覽器請求 Screen Wake Lock，離開 active state、component unmount 或頁面 hidden 時釋放，回到 visible 時可重新請求。Wake Lock 是 progressive enhancement；不支援或拒絕時仍可完整沖煮，Timer 的 truth 維持 original timestamp。約 `375×667` 的 active 畫面應在不垂直捲動的情況下顯示 Timer、instruction、target 與 Next／Finish，並避開 standalone safe areas。
 
 Final step 使用 `Finish Brew`。完成操作以同一 stable Session ID idempotently 寫入 `finished_at`、`actual_brew_time` 與 `completed` status，再前往該 exact Session 的 Taste Feedback route。一次 Plan execution 等於一個 Brew Session；同一 Plan 的下一次 Brew Again 是另一個 Session。
 

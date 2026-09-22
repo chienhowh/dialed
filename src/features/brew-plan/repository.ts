@@ -5,10 +5,11 @@ import { isTasteGoal } from "@/domain/taste/taste-goal";
 import { getCoffee } from "@/features/coffee/repository";
 import type { Coffee } from "@/features/coffee/types";
 import { recommendBrewPlan } from "@/features/recommendation/recommend-brew-plan";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 
 import type { TasteGoalInput } from "./taste-goal-form";
 import { isRecommendationSource, type BrewPlan, type BrewPlanEditInput } from "./types";
+import { validateBrewPlanEditStructure } from "./validation";
 
 const ACTIVE_RECIPE_SELECT = `
   id,
@@ -127,6 +128,13 @@ export class BrewPlanAlreadyStartedError extends Error {
   constructor() {
     super("A Brew Plan cannot be edited after a Brew Session has started.");
     this.name = "BrewPlanAlreadyStartedError";
+  }
+}
+
+export class InvalidBrewPlanEditError extends Error {
+  constructor() {
+    super("Brew Plan parameters or steps are structurally inconsistent.");
+    this.name = "InvalidBrewPlanEditError";
   }
 }
 
@@ -346,8 +354,6 @@ export async function getBrewPlan(
   return coffee ? toBrewPlan(row, coffee, sessionResult.data.length > 0) : null;
 }
 
-const EDIT_NOTE = "This Brew Plan was manually edited after recommendation.";
-
 export async function updateBrewPlan(
   supabase: SupabaseClient<Database>,
   userId: string,
@@ -359,46 +365,33 @@ export async function updateBrewPlan(
   if (current.hasStartedBrew) throw new BrewPlanAlreadyStartedError();
 
   const currentStepIds = new Set(current.steps.map(({ id }) => id));
-  if (input.steps.length !== currentStepIds.size || input.steps.some(({ id }) => !currentStepIds.has(id))) {
-    throw new Error("Brew plan steps do not match the saved snapshot.");
+  const inputStepIds = new Set(input.steps.map(({ id }) => id));
+  if (
+    input.steps.length !== currentStepIds.size
+    || inputStepIds.size !== currentStepIds.size
+    || input.steps.some(({ id }) => !currentStepIds.has(id))
+  ) {
+    throw new InvalidBrewPlanEditError();
   }
 
-  for (const step of input.steps) {
-    const { data, error } = await supabase
-      .from("brew_plan_steps")
-      .update({
-        duration: step.duration,
-        start_time: step.startTime,
-        target_water: step.targetWater,
-      })
-      .eq("id", step.id)
-      .eq("brew_plan_id", brewPlanId)
-      .select("id")
-      .maybeSingle();
-
-    if (error || !data) throw new Error("Unable to update brew plan steps.", { cause: error });
+  if (Object.keys(validateBrewPlanEditStructure(current, input)).length > 0) {
+    throw new InvalidBrewPlanEditError();
   }
 
-  const recommendationReason = current.recommendationReason.includes(EDIT_NOTE)
-    ? current.recommendationReason
-    : `${current.recommendationReason}\n\n${EDIT_NOTE}`;
-  const { data, error } = await supabase
-    .from("brew_plans")
-    .update({
-      coffee_dose: input.coffeeDose,
-      grind_level: input.grindLevel,
-      ratio: input.ratio,
-      recommendation_reason: recommendationReason,
-      recommendation_source: "manual",
-      target_brew_time_max: input.targetBrewTimeMax,
-      target_brew_time_min: input.targetBrewTimeMin,
-      water_amount: input.waterAmount,
-      water_temperature: input.waterTemperature,
-    })
-    .eq("id", brewPlanId)
-    .eq("user_id", userId)
-    .select("id")
-    .maybeSingle();
+  const { error } = await supabase.rpc("update_brew_plan", {
+    p_brew_plan_id: brewPlanId,
+    p_coffee_dose: input.coffeeDose,
+    p_grind_level: input.grindLevel,
+    p_ratio: input.ratio,
+    p_steps: input.steps as Json,
+    p_target_brew_time_max: input.targetBrewTimeMax,
+    p_target_brew_time_min: input.targetBrewTimeMin,
+    p_water_amount: input.waterAmount,
+    p_water_temperature: input.waterTemperature,
+  });
 
-  if (error || !data) throw new Error("Unable to update brew plan.", { cause: error });
+  if (error?.code === "42501") throw new BrewPlanNotFoundError();
+  if (error?.code === "55000") throw new BrewPlanAlreadyStartedError();
+  if (error?.code === "22023") throw new InvalidBrewPlanEditError();
+  if (error) throw new Error("Unable to update Brew Plan.", { cause: error });
 }

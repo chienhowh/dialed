@@ -41,6 +41,43 @@ async function createCoffee(client: SupabaseClient, user: TestUser) {
   return coffeeId;
 }
 
+async function createExecutablePlan(client: SupabaseClient, user: TestUser) {
+  const coffeeId = await createCoffee(client, user);
+  const dialInThreadId = crypto.randomUUID();
+  const brewPlanId = crypto.randomUUID();
+  const { error: threadError } = await client.from("dial_in_threads").insert({
+    coffee_id: coffeeId,
+    id: dialInThreadId,
+    primary_taste_goal: "sweet",
+    user_id: user.id,
+  });
+  expect(threadError).toBeNull();
+  const { error: planError } = await client.from("brew_plans").insert({
+    coffee_dose: 15,
+    coffee_id: coffeeId,
+    dial_in_thread_id: dialInThreadId,
+    expected_flavor: "Account isolation fixture",
+    grind_level: "medium",
+    id: brewPlanId,
+    ratio: 16,
+    recommendation_reason: "Account isolation fixture",
+    recommendation_source: "manual",
+    target_brew_time_max: 160,
+    target_brew_time_min: 135,
+    user_id: user.id,
+    water_amount: 240,
+    water_temperature: 92,
+  });
+  expect(planError).toBeNull();
+  const { error: stepsError } = await client.from("brew_plan_steps").insert([
+    { brew_plan_id: brewPlanId, start_time: 0, step_order: 1, step_type: "pour", target_water: 40 },
+    { brew_plan_id: brewPlanId, start_time: 40, step_order: 2, step_type: "pour", target_water: 120 },
+    { brew_plan_id: brewPlanId, start_time: 80, step_order: 3, step_type: "pour", target_water: 240 },
+  ]);
+  expect(stepsError).toBeNull();
+  return brewPlanId;
+}
+
 test.beforeAll(async () => {
   [owner, otherUser] = await Promise.all([
     createTestUser("brew-plan-owner"),
@@ -121,10 +158,29 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
 
   await page.getByRole("link", { name: "Edit Plan" }).click();
   await page.getByLabel("Water (g)", { exact: true }).fill("250");
+  await page.getByRole("button", { name: "Save Plan" }).click();
+  await expect(page.getByText(/Water must match dose × ratio/)).toBeVisible();
+  const { data: unchangedPlan } = await ownerClient
+    .from("brew_plans")
+    .select("water_amount, ratio")
+    .eq("id", brewPlanId ?? "")
+    .single();
+  const { data: unchangedFinalStep } = await ownerClient
+    .from("brew_plan_steps")
+    .select("target_water")
+    .eq("brew_plan_id", brewPlanId ?? "")
+    .order("step_order", { ascending: false })
+    .limit(1)
+    .single();
+  expect(unchangedPlan).toEqual({ ratio: 16, water_amount: 240 });
+  expect(unchangedFinalStep?.target_water).toBe(240);
+
+  await page.getByLabel("Water (g)", { exact: true }).fill("250");
   await page.getByLabel("Ratio (1:x)").fill("16.67");
   await page.getByLabel("Temperature (°C)").fill("90");
   await page.getByLabel("Grind level").fill("fine");
   await page.getByLabel("Cumulative target water (g)").first().fill("45");
+  await page.getByLabel("Cumulative target water (g)").last().fill("250");
   await page.getByRole("button", { name: "Save Plan" }).click();
 
   await expect(page).toHaveURL(`/brew/${brewPlanId}`);
@@ -196,6 +252,22 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
   await expect(page.getByText("45g", { exact: true })).toBeVisible();
   await expect(page.getByText("Target water", { exact: true })).toBeVisible();
   await expect(page.getByText("0:40 · Pour to 120g", { exact: true })).toBeVisible();
+  await page.setViewportSize({ height: 667, width: 375 });
+  const smallViewport = await page.getByTestId("guided-brew-active").evaluate((screen) => {
+    const buttons = screen.querySelectorAll("button");
+    const action = buttons.item(buttons.length - 1);
+    const actionBounds = action?.getBoundingClientRect();
+    return {
+      actionBottom: actionBounds?.bottom ?? Number.POSITIVE_INFINITY,
+      clientHeight: screen.clientHeight,
+      innerHeight: window.innerHeight,
+      scrollHeight: screen.scrollHeight,
+    };
+  });
+  expect(smallViewport.scrollHeight).toBeLessThanOrEqual(smallViewport.clientHeight + 1);
+  expect(smallViewport.actionBottom).toBeLessThanOrEqual(smallViewport.innerHeight);
+  await expect(page.getByText("Total Timer", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toBeVisible();
 
   await expect.poll(async () => {
     const { count } = await ownerClient
@@ -214,8 +286,8 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
   expect(startedSession).toMatchObject({ brew_plan_id: brewPlanId, status: "brewing" });
   const localExecutionBeforeRefresh = await page.evaluate(() => JSON.parse(
     window.localStorage.getItem("dialed.active-brew.v1") ?? "null",
-  ) as { sessionId?: string; startedAt?: string; version?: number } | null);
-  expect(localExecutionBeforeRefresh).toMatchObject({ sessionId: startedSession?.id, version: 2 });
+  ) as { ownerUserId?: string; sessionId?: string; startedAt?: string; version?: number } | null);
+  expect(localExecutionBeforeRefresh).toMatchObject({ ownerUserId: owner.id, sessionId: startedSession?.id, version: 3 });
   expect(Date.parse(localExecutionBeforeRefresh?.startedAt ?? "")).toBe(Date.parse(startedSession?.started_at ?? ""));
 
   await page.getByRole("button", { name: "Next", exact: true }).click();
@@ -248,7 +320,13 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
     (button as HTMLButtonElement).click();
   });
   await expect(page.getByText("Saved on this device", { exact: true })).toBeVisible();
+  const pendingSessionId = await page.evaluate(() => JSON.parse(
+    window.localStorage.getItem("dialed.active-brew.v1") ?? "null",
+  )?.sessionId as string | undefined);
+  expect(pendingSessionId).toBe(startedSession?.id);
+  await page.goto("about:blank");
   await context.setOffline(false);
+  await page.goto("/");
 
   await expect(page).toHaveURL(new RegExp(`/brew/${brewPlanId}/session/${startedSession?.id}/feedback$`));
   await expect(page.getByText("Brew Complete", { exact: true })).toBeVisible();
@@ -444,8 +522,73 @@ test("creates, edits, executes, resumes, completes, and isolates a Brew Plan", a
   expect(mutatedPlans).toEqual([]);
   expect(mutatedThreads).toEqual([]);
 
+  await page.goto(`/brew/${brewPlanId}/start`);
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Bloom" })).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByRole("complementary", { name: "Device brew recovery" })).toContainText("Recommendation Coffee");
+  const activeOwner = await page.evaluate(() => JSON.parse(
+    window.localStorage.getItem("dialed.active-brew.v1") ?? "null",
+  )?.ownerUserId as string | undefined);
+  expect(activeOwner).toBe(owner.id);
+
   await page.getByRole("button", { name: "Sign out" }).click();
+  expect(await page.evaluate(() => JSON.parse(
+    window.localStorage.getItem("dialed.active-brew.v1") ?? "null",
+  )?.ownerUserId)).toBe(owner.id);
   await signIn(page, otherUser);
+  await page.goto("/");
+  await expect(page.getByText("Recommendation Coffee", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => window.localStorage.getItem("dialed.active-brew.v1"))).toBeNull();
+
+  await page.evaluate(({ inaccessiblePlanId, userId }) => {
+    window.localStorage.setItem("dialed.active-brew.v1", JSON.stringify({
+      currentStepIndex: 0,
+      finishedAt: null,
+      ownerUserId: userId,
+      plan: {
+        brewPlanId: inaccessiblePlanId,
+        coffeeDose: 15,
+        coffeeName: "Inaccessible private coffee",
+        grindLevel: "medium",
+        ratio: 16,
+        recipeName: "Private recipe",
+        steps: [{
+          duration: null,
+          id: crypto.randomUUID(),
+          note: "Private step",
+          startTime: 0,
+          stepOrder: 1,
+          stepType: "pour",
+          targetWater: 240,
+        }],
+        targetBrewTimeMax: 160,
+        targetBrewTimeMin: 135,
+        tasteGoal: "Private goal",
+        waterAmount: 240,
+        waterTemperature: 92,
+      },
+      sessionId: crypto.randomUUID(),
+      startedAt: new Date().toISOString(),
+      status: "active",
+      version: 3,
+    }));
+  }, { inaccessiblePlanId: brewPlanId, userId: otherUser.id });
+  await page.reload();
+  await expect(page.getByText("An unavailable device recovery was removed.")).toBeVisible();
+  await expect(page.getByText("Inaccessible private coffee", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => window.localStorage.getItem("dialed.active-brew.v1"))).toBeNull();
+
+  const otherPlanId = await createExecutablePlan(otherClient, otherUser);
+  await page.goto(`/brew/${otherPlanId}/start`);
+  await expect(page.getByText("Ready to brew", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Pour" })).toBeVisible();
+  const otherOwner = await page.evaluate(() => JSON.parse(
+    window.localStorage.getItem("dialed.active-brew.v1") ?? "null",
+  )?.ownerUserId as string | undefined);
+  expect(otherOwner).toBe(otherUser.id);
+
   await page.goto(`/brew/${brewPlanId}`);
   await expect(page.getByRole("heading", { name: "Brew Plan not found" })).toBeVisible();
   await page.goto(`/brew/${brewPlanId}/session/${startedSession?.id}/feedback`);

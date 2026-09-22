@@ -663,6 +663,28 @@ export type Database = {
         }
         Returns: string
       }
+      start_brew_session: {
+        Args: {
+          p_brew_plan_id: string
+          p_session_id: string
+          p_started_at: string
+        }
+        Returns: string
+      }
+      update_brew_plan: {
+        Args: {
+          p_brew_plan_id: string
+          p_coffee_dose: number
+          p_grind_level: string
+          p_ratio: number
+          p_steps: Json
+          p_target_brew_time_max: number
+          p_target_brew_time_min: number
+          p_water_amount: number
+          p_water_temperature: number
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

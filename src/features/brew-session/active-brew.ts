@@ -13,6 +13,7 @@ type StorageAdapter = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 export function createActiveBrewRecord(
   plan: GuidedBrewPlanSnapshot,
   sessionId: string,
+  ownerUserId: string,
   now: number,
 ): ActiveBrewRecord {
   if (!isGuidedBrewPlanSnapshot(plan)) {
@@ -22,11 +23,12 @@ export function createActiveBrewRecord(
   return {
     currentStepIndex: 0,
     finishedAt: null,
+    ownerUserId,
     plan,
     sessionId,
     startedAt: new Date(now).toISOString(),
     status: "active",
-    version: 2,
+    version: 3,
   };
 }
 
@@ -85,34 +87,15 @@ export function toBrewSessionSyncInput(record: ActiveBrewRecord): BrewSessionSyn
   };
 }
 
-type LegacyRecordedStepTime = {
-  actualEndTime: number | null;
-  actualStartTime: number;
-  brewPlanStepId: string;
-};
-
-function isLegacyRecordedStepTime(value: unknown): value is LegacyRecordedStepTime {
-  if (!value || typeof value !== "object") return false;
-  const step = value as Partial<LegacyRecordedStepTime>;
-  return typeof step.brewPlanStepId === "string"
-    && Number.isInteger(step.actualStartTime)
-    && (step.actualStartTime ?? -1) >= 0
-    && (step.actualEndTime === null || (
-      Number.isInteger(step.actualEndTime)
-      && (step.actualEndTime ?? -1) >= (step.actualStartTime ?? 0)
-    ));
-}
-
 export function parseActiveBrewRecord(serialized: string | null): ActiveBrewRecord | null {
   if (!serialized) return null;
 
   try {
-    const value = JSON.parse(serialized) as Partial<Omit<ActiveBrewRecord, "version">> & {
-      recordedStepTimes?: unknown;
-      version?: unknown;
-    };
+    const value = JSON.parse(serialized) as Partial<ActiveBrewRecord>;
     if (
-      (value.version !== 1 && value.version !== 2)
+      value.version !== 3
+      || typeof value.ownerUserId !== "string"
+      || value.ownerUserId.trim().length === 0
       || typeof value.sessionId !== "string"
       || typeof value.startedAt !== "string"
       || (value.finishedAt !== null && typeof value.finishedAt !== "string")
@@ -137,41 +120,41 @@ export function parseActiveBrewRecord(serialized: string | null): ActiveBrewReco
       return null;
     }
 
-    if (value.version === 1) {
-      const recordedStepTimes = value.recordedStepTimes;
-      if (
-        !Array.isArray(recordedStepTimes)
-        || recordedStepTimes.length !== currentStepIndex + 1
-        || !recordedStepTimes.every(isLegacyRecordedStepTime)
-        || recordedStepTimes.some((step, index) => step.brewPlanStepId !== plan.steps[index]?.id)
-      ) return null;
-    }
-
     return {
       currentStepIndex,
       finishedAt: value.finishedAt,
+      ownerUserId: value.ownerUserId,
       plan,
       sessionId: value.sessionId,
       startedAt: value.startedAt,
       status,
-      version: 2,
+      version: 3,
     };
   } catch {
     return null;
   }
 }
 
-export function readActiveBrew(storage: StorageAdapter) {
-  return parseActiveBrewRecord(storage.getItem(ACTIVE_BREW_STORAGE_KEY));
+export function readActiveBrew(storage: StorageAdapter, ownerUserId: string) {
+  const record = parseActiveBrewRecord(storage.getItem(ACTIVE_BREW_STORAGE_KEY));
+  if (!record || record.ownerUserId !== ownerUserId) {
+    storage.removeItem(ACTIVE_BREW_STORAGE_KEY);
+    return null;
+  }
+  return record;
 }
 
 export function saveActiveBrew(storage: StorageAdapter, record: ActiveBrewRecord) {
   storage.setItem(ACTIVE_BREW_STORAGE_KEY, JSON.stringify(record));
 }
 
-export function clearActiveBrew(storage: StorageAdapter, sessionId: string) {
-  const stored = readActiveBrew(storage);
+export function clearActiveBrew(storage: StorageAdapter, ownerUserId: string, sessionId: string) {
+  const stored = readActiveBrew(storage, ownerUserId);
   if (!stored || stored.sessionId === sessionId) {
     storage.removeItem(ACTIVE_BREW_STORAGE_KEY);
   }
+}
+
+export function clearAllActiveBrewRecovery(storage: StorageAdapter) {
+  storage.removeItem(ACTIVE_BREW_STORAGE_KEY);
 }

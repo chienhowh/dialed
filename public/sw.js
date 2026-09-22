@@ -1,8 +1,8 @@
-const CACHE_NAME = "dialed-shell-v1";
-const APP_SHELL = ["/", "/coffee", "/history", "/icon.svg"];
+const CACHE_NAME = "dialed-static-v2";
+const SAFE_STATIC_ASSETS = ["/icon.svg"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SAFE_STATIC_ASSETS)));
   self.skipWaiting();
 });
 
@@ -16,17 +16,16 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET" || event.request.mode !== "navigate") {
+  if (event.request.method !== "GET" || event.request.mode === "navigate") {
+    return;
+  }
+
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin || requestUrl.pathname !== "/icon.svg") {
     return;
   }
 
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        const copy = response.clone();
-        void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return response;
-      })
-      .catch(async () => (await caches.match(event.request)) ?? caches.match("/")),
+    caches.match(event.request).then((cached) => cached ?? fetch(event.request)),
   );
 });

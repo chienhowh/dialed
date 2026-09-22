@@ -2,7 +2,7 @@
 
 import { requireUser } from "@/features/auth/require-user";
 
-import { syncBrewSession } from "./repository";
+import { BrewSessionSyncError, syncBrewSession } from "./repository";
 import type { BrewSessionStatus, BrewSessionSyncInput, BrewSessionSyncResult } from "./types";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -32,13 +32,20 @@ function isValidInput(input: BrewSessionSyncInput) {
 }
 
 export async function syncBrewSessionAction(input: BrewSessionSyncInput): Promise<BrewSessionSyncResult> {
-  if (!isValidInput(input)) return { message: "Brew Session data is invalid.", success: false };
+  if (!isValidInput(input)) return { message: "Brew Session data is invalid.", reason: "unavailable", success: false };
 
   try {
     const { supabase, user } = await requireUser();
     const session = await syncBrewSession(supabase, user.id, input);
     return { sessionId: session.id, status: session.status, success: true };
-  } catch {
-    return { message: "This brew is saved on this device and will sync when the connection returns.", success: false };
+  } catch (error) {
+    if (error instanceof BrewSessionSyncError && error.reason === "unavailable") {
+      return { message: "This device recovery is no longer available.", reason: "unavailable", success: false };
+    }
+    return {
+      message: "This brew is saved on this device and will sync when the connection returns.",
+      reason: "retryable",
+      success: false,
+    };
   }
 }

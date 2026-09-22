@@ -1,4 +1,5 @@
 import type { BrewPlan, BrewPlanEditInput, BrewPlanStep } from "./types";
+import { validateBrewPlanEditStructure } from "./validation";
 
 export type BrewPlanEditFormState = {
   errors?: Record<string, string>;
@@ -123,17 +124,18 @@ export function parseBrewPlanEditFormData(formData: FormData, plan: BrewPlan):
     return { errors, success: false };
   }
 
-  return {
-    data: {
-      coffeeDose,
-      grindLevel,
-      ratio,
-      steps: steps as BrewPlanEditInput["steps"],
-      targetBrewTimeMax,
-      targetBrewTimeMin,
-      waterAmount,
-      waterTemperature,
-    },
-    success: true,
+  const data: BrewPlanEditInput = {
+    coffeeDose,
+    grindLevel,
+    ratio,
+    steps: steps as BrewPlanEditInput["steps"],
+    targetBrewTimeMax,
+    targetBrewTimeMin,
+    waterAmount,
+    waterTemperature,
   };
+  const structuralErrors = validateBrewPlanEditStructure(plan, data);
+  if (Object.keys(structuralErrors).length > 0) return { errors: structuralErrors, success: false };
+
+  return { data, success: true };
 }

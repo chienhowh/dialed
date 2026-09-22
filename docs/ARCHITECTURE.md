@@ -314,6 +314,8 @@ MVP 的 application-level Brewer 固定為 standard `v60` pour-over。`brewer_ty
 
 `Immersion` 是 Future Recipe Type，不建立 MVP seed record，不出現在 selectable catalog，也不參與 MVP Recommendation Engine。未來啟用時再定義相容 Brewer 與硬體需求。
 
+Three Pour、4:6、One Pour 與其 canonical steps 是 required application reference data，由 versioned migration idempotently 安裝。`seed.sql` 不是 production catalog dependency；fresh database 只走 migrations 也必須可產生第一份 recommendation。
+
 ---
 
 ## recipe_steps
@@ -441,7 +443,7 @@ note
 
 因此 Brew Plan 是當時 Recipe 的 snapshot。
 
-第一個 Brew Session 建立後，應用層禁止再編輯該 Brew Plan 與 `brew_plan_steps`。Guided Brew 永遠讀取這份 persisted snapshot；Recipe Template 的後續變更不參與 active 或 completed Session 的執行。
+第一個 Brew Session 建立後，應用層禁止再編輯該 Brew Plan 與 `brew_plan_steps`。Guided Brew 永遠讀取這份 persisted snapshot；Recipe Template 的後續變更不參與 active 或 completed Session 的執行。手動編輯由 `update_brew_plan` transactional RPC 驗證 owner、鎖定 Plan row、重新檢查沒有 Session、驗證 Plan／steps 結構，再原子更新所有 rows 與 manual provenance。`start_brew_session` RPC 取得同一 Plan row lock 後建立 Session snapshot，因此 edit 與 start 不可能跨越 immutable-after-start boundary 產生混合或 partial snapshot。
 
 ---
 
@@ -1083,7 +1085,9 @@ Server route 使用 owner-scoped `getBrewPlan` 讀取 immutable Plan／Plan Step
 
 Presentation model 將 current index 轉成 step number/type、instruction、target、next preview 與 `Next`／`Finish Brew` action。Step progression 只改 local `currentStepIndex`，不呼叫 Session sync。沒有 automatic advancement。
 
-Start 先產生 stable client UUID 與 original `startedAt`，保存 local record，再以 owner-scoped idempotent upsert 建立唯一 `brewing` Session。Finish 只在 final step成立，將同一 local record標記 terminal 並 sync 同一 Session；repository 以 Session ID、Plan ID 與 `startedAt` 驗證 identity，completed／aborted Session 不會被改回 brewing。成功後清除 matching local record並 replace至 exact `/brew/{planId}/session/{sessionId}/feedback`。
+Start 先產生 stable client UUID 與 original `startedAt`，保存 owner-scoped local record，再透過 owner-scoped idempotent `start_brew_session` RPC 建立唯一 `brewing` Session。Finish 只在 final step成立，將同一 local record標記 terminal 並 sync 同一 Session；repository 以 Session ID、Plan ID 與 `startedAt` 驗證 identity，completed／aborted Session 不會被改回 brewing。成功後清除 matching local record並 replace至 exact `/brew/{planId}/session/{sessionId}/feedback`。
+
+Active state 才啟用 Screen Wake Lock controller。它在 hidden／unmount／terminal cleanup 釋放、visible 時重新請求；unsupported 或 rejected request 不改變流程。Timer 持續由 `startedAt` 與 current time 推導。Active layout 使用 CSS compact breakpoints 與 safe-area insets，`375×667` 仍讓 primary action 位於 viewport 內。
 
 ## Milestone 8.4 completion and feedback composition
 
@@ -1116,13 +1120,15 @@ startedAt
 currentStep
 ```
 
-Local record version 2 不保存 inferred step timing 或 water telemetry。Parser 可以將既有 version 1 active record升級為 version 2，保留 Plan、Session、start time、current step 與 terminal state，同時丟棄過去由 UI transitions 推得的 `recordedStepTimes`。
+Local record version 3 不保存 inferred step timing 或 water telemetry，並包含建立它的 authenticated `ownerUserId`。每次 read 都要比對 current user；malformed、legacy 或 owner mismatch record 直接移除，不 render 其中的 Coffee／Plan／Session presentation，也不得阻擋 current user。
 
 目的：
 
 - accidental refresh
 - PWA 被切到背景
 - browser tab reload
+
+AppShell 提供小型 global recovery surface：current-user active record可 Resume 或明確 End Brew，pending terminal record會自動嘗試 sync並可 Retry；server 已 terminal 時導向既有結果，Plan／Session 不可存取時清除 stale record。DB-only `brewing` Session 沒有 matching valid local record時仍不可恢復，也不 fabricated Resume CTA。
 
 重新進入 Brew Screen 時可以恢復 Session。
 
@@ -1174,12 +1180,12 @@ Sync Supabase
 
 - Brew Session 在開始時產生 stable client UUID
 - retry 使用相同 UUID 與 payload
-- Server mutation 使用 insert-on-conflict / upsert semantics
+- Server mutation 使用 stable-ID、identity-checked idempotent semantics
 - 重複的 reconnect、refresh 或 retry 不得建立重複 Session / Session Steps
 
 完整 IndexedDB offline database 可以在需要時再加入。
 
-MVP active session 使用單一 local-storage record，不建立 IndexedDB、一般化 sync queue 或完整 offline database。
+MVP active session 使用單一 owner-scoped local-storage record，不建立 IndexedDB、一般化 sync queue、cross-device recovery 或完整 offline database。完成後離線可關閉頁面；同一 owner 再開啟任何 AppShell page時會發現 `completed_pending_sync`，retry 沿用同一 Session ID。
 
 ---
 
@@ -1196,12 +1202,14 @@ public/sw.js
 
 - Add to Home Screen
 - Standalone presentation
-- Cache basic shell/assets
+- Cache safe public static assets
 - Improve Brew experience
 
 Next.js 官方目前直接支援 `manifest.ts`，也有 PWA / Service Worker 官方指南。
 
 MVP 不依賴 Push Notification。
+
+Installable 不代表 authenticated application 可一般離線瀏覽。Service Worker 不攔截或寫入 navigation responses，不 cache Home、Coffee、History、Brew、Feedback 等 private HTML，也不以 cached `/` 作 offline fallback。升級 activation 會刪除舊 cache（包含曾可能保存 private HTML 的 `dialed-shell-v1`）；目前只 cache 明確 allowlist 的 public icon。Active-brew recovery 與此 Cache Storage policy 分離。
 
 ---
 

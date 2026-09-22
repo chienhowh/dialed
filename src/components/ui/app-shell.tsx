@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { PrimaryNavigation } from "@/components/navigation/primary-navigation";
+import { ActiveBrewRecovery } from "@/components/brew/active-brew-recovery";
 import { signOut } from "@/app/(auth)/login/actions";
 import { createClient } from "@/lib/supabase/server";
 
@@ -33,6 +34,7 @@ export async function AppShell({ children }: Readonly<{ children: React.ReactNod
           </Link>
         </div>
       </header>
+      <ActiveBrewRecovery ownerUserId={user.id} />
       <main className="flex-1 px-5 py-8">{children}</main>
       <div className="sticky bottom-0 z-10">
         <PrimaryNavigation />

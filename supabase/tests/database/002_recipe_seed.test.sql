@@ -10,7 +10,7 @@ select set_eq(
 select is(
   (select count(*) from public.recipe_templates where lower(name) = 'immersion'),
   0::bigint,
-  'Immersion is not seeded'
+  'Immersion is not installed by the reference-data migration'
 );
 select is(
   (select count(*) from public.recipe_steps where recipe_template_id = '10000000-0000-4000-8000-000000000001'),
@@ -35,7 +35,7 @@ select is(
 select is(
   (select count(*) from public.recipe_steps where step_type not in ('pour', 'wait')),
   0::bigint,
-  'the MVP seed uses only active step types'
+  'the MVP reference-data migration uses only active step types'
 );
 
 select * from finish();

@@ -10,6 +10,7 @@ import { parseBrewPlanEditFormData, type BrewPlanEditFormState } from "./edit-fo
 import {
   BrewPlanAlreadyStartedError,
   BrewPlanNotFoundError,
+  InvalidBrewPlanEditError,
   createRecommendedBrewPlan,
   getBrewPlan,
   updateBrewPlan,
@@ -70,6 +71,9 @@ export async function updateBrewPlanAction(
     if (error instanceof BrewPlanNotFoundError) notFound();
     if (error instanceof BrewPlanAlreadyStartedError) {
       return { message: "This Brew Plan is locked because brewing has already started." };
+    }
+    if (error instanceof InvalidBrewPlanEditError) {
+      return { message: "This Brew Plan is inconsistent. Review its amounts, timing, and cumulative pours." };
     }
     return { message: "We could not update this Brew Plan. Please try again." };
   }

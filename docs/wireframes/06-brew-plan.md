@@ -84,6 +84,8 @@ Editable parameters may include:
 
 User edits should create the final Brew Plan snapshot used by the Session.
 
+Water、dose 與 ratio 必須一致；Pour cumulative targets 不倒退且 final Pour 等於 total Water；step times 依序前進且不可重疊。Save 以單一 transaction 同時更新 Plan 與 steps，invalid edit 不保存任何部分。
+
 After a Brew Session has started, hide `Edit Plan` and show that the plan is locked to preserve its execution history.
 
 ## Next

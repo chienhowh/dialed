@@ -36,7 +36,7 @@ npm run db:reset
 npm run test:db
 ```
 
-`db:reset` recreates the local database from migrations and applies the reproducible official recipe seed.
+`db:reset` recreates the local database from migrations. Required official recipe reference data is installed by a versioned migration; `seed.sql` is intentionally not a production dependency.
 
 ## Quality commands
 

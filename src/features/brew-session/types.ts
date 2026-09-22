@@ -30,11 +30,12 @@ export type LocalBrewStatus = "aborted_pending_sync" | "active" | "completed_pen
 export type ActiveBrewRecord = {
   currentStepIndex: number;
   finishedAt: string | null;
+  ownerUserId: string;
   plan: GuidedBrewPlanSnapshot;
   sessionId: string;
   startedAt: string;
   status: LocalBrewStatus;
-  version: 2;
+  version: 3;
 };
 
 export type BrewSessionStatus = "aborted" | "brewing" | "completed";
@@ -49,7 +50,7 @@ export type BrewSessionSyncInput = {
 
 export type BrewSessionSyncResult =
   | { sessionId: string; status: BrewSessionStatus; success: true }
-  | { message: string; success: false };
+  | { message: string; reason: "retryable" | "unavailable"; success: false };
 
 export type BrewSession = {
   actualBrewTime: number | null;

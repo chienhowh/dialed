@@ -81,3 +81,4 @@ Home should make both **starting a new brew** and **continuing an existing Dial-
 - M8.1 shows one primary actionable shortcut per Thread. If more work exists, the card says how many additional items need attention and links to Coffee Detail.
 - Shortcut labels may be `Give Feedback`, `Choose Adjustment`, `Continue Dial-in`, `Review Next Brew`, or `Review Brew Plan`; navigation returns to existing canonical routes and performs no mutation on Home.
 - A DB-only `brewing` Session is not shown as resumable. Resume requires the matching device-local active-brew record and is outside the M8.1 server read model.
+- AppShell 可在主要內容上方顯示 owner-scoped device recovery banner。Active record 提供 `Resume Brew`／`End Brew`；pending completion 顯示 sync 狀態與 `Retry Sync`。它只呈現 current-user 且 server 仍可存取的資料；stale／cross-account record 不顯示內容也不阻擋新 Brew。
