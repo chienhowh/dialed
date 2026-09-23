@@ -63,14 +63,16 @@ MVP 不先建立大型 Design System。
 
 **Supabase Auth**
 
-MVP：
+Private Beta：
 
-- Email + password authentication 為必要功能
-- Google OAuth 為 optional，不阻擋 MVP 或 Milestone 2 完成
+- User-facing auth 僅提供 Google OAuth
+- Supabase Auth 維持 identity 與 session authority
+- Email/password auth 不在 beta UI 暴露
+- Authentication method 不改變 user-owned domain data、ownership 或 RLS 語意
 
 Auth UX 先保持簡單，不建立複雜的 onboarding 或 account-management flow。
 
-Next.js 使用 cookie-based session。
+Next.js 使用 cookie-based session。OAuth initiation 以 canonical `APP_URL` 建立固定 callback URL，callback 透過 server-side Supabase client 完成 PKCE code exchange，成功後導向固定的 app destination。
 
 Supabase 官方目前建議 SSR framework 使用 `@supabase/ssr`，並分開 browser/server clients。
 
@@ -1366,7 +1368,7 @@ Create Brew Plan
 ## Integration Tests
 
 - Create Coffee
-- Email authentication and user-owned RLS boundaries
+- Authentication session and user-owned RLS boundaries
 - Generate Plan
 - Start Brew
 - Complete Brew

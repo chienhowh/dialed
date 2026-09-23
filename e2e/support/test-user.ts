@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { createBrowserClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 
 const password = "Dialed-test-password-2026";
@@ -39,9 +40,33 @@ export async function deleteTestUser(user?: TestUser) {
 }
 
 export async function signIn(page: Page, user: TestUser) {
-  await page.goto("/login");
-  await page.getByLabel("Email").fill(user.email);
-  await page.getByLabel("Password").fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.waitForURL("/");
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!url || !publishableKey) {
+    throw new Error("Local Supabase integration-test environment is missing.");
+  }
+
+  let authCookies: Array<{ name: string; value: string }> = [];
+  const supabase = createBrowserClient(url, publishableKey, {
+    isSingleton: false,
+    cookies: {
+      getAll: () => authCookies,
+      setAll: (cookiesToSet) => {
+        for (const { name, value } of cookiesToSet) {
+          authCookies = authCookies.filter((cookie) => cookie.name !== name);
+          if (value) authCookies.push({ name, value });
+        }
+      },
+    },
+  });
+  const { error } = await supabase.auth.signInWithPassword(user);
+
+  if (error) throw error;
+
+  const appUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+  await page.context().addCookies(
+    authCookies.map(({ name, value }) => ({ name, url: appUrl, value })),
+  );
+  await page.goto("/");
 }

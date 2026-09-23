@@ -1049,7 +1049,9 @@ Coffee Detail 是單一 Coffee 的 canonical recovery hub。`Current Dial-ins` �
 - Adjustment Decision
 - Dial-in Thread
 - V60-only brewing support
-- Email authentication
+- Google OAuth authentication for the Private Beta
+
+Private Beta 的 user-facing authentication 僅提供 Google OAuth。Supabase Auth 仍是 identity 與 session authority；不在 beta UI 暴露 email/password。Authentication method 不改變既有 user-owned data、ownership 或 RLS 語意。
 
 ---
 
