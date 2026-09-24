@@ -15,6 +15,9 @@ export async function signInWithGoogle(): Promise<GoogleSignInState> {
     provider: "google",
     options: {
       redirectTo: getAuthCallbackUrl(),
+      queryParams: {
+        prompt: "select_account"
+      }
     },
   });
 
